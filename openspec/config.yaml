@@ -1,0 +1,62 @@
+schema: spec-driven
+
+context: |
+  claude-cli — one hardened wrapper around the local `claude -p` CLI, extracted
+  from six repos (dialogue-lens, tiktok-lazy-follower, get_cool_event,
+  finance-insights, chat-watch, buy-smarter) that each hand-rolled the same
+  subprocess contract and each got a different part of it wrong.
+
+  Stack: Python >=3.12, src layout (`src/claude_cli/`), hatchling, pytest with
+  `asyncio_mode = "auto"`. Tests: `uv run --extra dev pytest -q`.
+
+  Zero runtime dependencies, on purpose. `dependencies = []` in pyproject.toml is
+  a constraint, not an accident: consumers vendor this into projects with
+  conflicting dependency trees. Proposing a new runtime dependency requires
+  justifying why stdlib cannot do it.
+
+  Auth is Claude Code *subscription* / OAuth. There is no ANTHROPIC_API_KEY
+  anywhere in this project, and `--bare` (which would force API-key-only mode) is
+  never passed. A test guards its absence.
+
+  Modules map ~1:1 onto capabilities:
+    runner.py   -> cli-invocation (argv, isolation) + run-execution (lifecycle, errors)
+    parsing.py  -> output-parsing
+    cache.py    -> response-cache
+    batch.py    -> batch-processing
+
+  The test suite never invokes the real `claude` binary. It fakes
+  `claude_cli.runner.subprocess.run`, `...asyncio.create_subprocess_exec` and
+  `...shutil.which`. Any new execution path needs the same treatment — a spec
+  scenario that would require a live CLI call is a spec that cannot be verified.
+
+  All errors derive from `ClaudeCliError(RuntimeError)` so that consumers with
+  `except RuntimeError` graceful-degrade paths keep working. Adding an error type
+  outside that hierarchy is a breaking change.
+
+  Style: comments explain *why*, not what. Deliberate simplifications are marked
+  with a `ponytail:` comment naming the ceiling and the upgrade path.
+
+rules:
+  specs:
+    - >-
+      Every scenario ends with an Anchor bullet of the form
+      "- **Anchor**: tests/<file>.py::<test_name>" (path in backticks) naming the
+      test that verifies it. The anchor set and the test suite are currently a
+      bijection — no orphan anchors, no unanchored tests. Keep it that way.
+    - >-
+      State behavior the code guarantees, not the code's structure. A requirement
+      that would still be true after a rewrite is a good one.
+    - >-
+      Requirements carry MUST or SHALL; the strict validator warns otherwise.
+    - >-
+      Capture the why when a rule looks arbitrary. The narrow usage-limit regex
+      and the never-delete cache expiry both exist to prevent a specific failure,
+      and a spec that omits the reason invites a "cleanup" that reintroduces it.
+  design:
+    - >-
+      Only write a design when the change has a real decision to record. A
+      mechanical change to an existing capability does not need one.
+  tasks:
+    - >-
+      Tests come before implementation. The failing test for each scenario is its
+      own task, ahead of the code that makes it pass.
