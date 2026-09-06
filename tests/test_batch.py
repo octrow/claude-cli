@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from claude_cli import run_chunks
+from claude_cli import pack_batches, run_chunks
+
+
+def test_pack_batches_respects_budget_and_count():
+    items = ["x" * 10, "y" * 10, "z" * 90, "w", "v", "u"]
+    assert pack_batches(items, 50, size_of=len) == [items[:2], items[2:3], items[3:]]
+    # an item over budget rides alone; max_items caps an otherwise-fitting batch
+    assert [len(b) for b in pack_batches(items, 50, size_of=len, max_items=2)] == [2, 1, 2, 1]
 
 
 def _double(chunk):

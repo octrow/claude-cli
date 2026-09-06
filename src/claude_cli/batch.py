@@ -1,4 +1,4 @@
-"""Batch helper: apply a per-chunk LLM call over many chunks."""
+"""Batch helpers: pack items into prompt-sized chunks, and run a call per chunk."""
 
 from __future__ import annotations
 
@@ -7,6 +7,37 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+
+def pack_batches(
+    items: Iterable[Any],
+    budget: int,
+    *,
+    size_of: Callable[[Any], int],
+    max_items: int = 0,
+) -> list[list[Any]]:
+    """Greedily pack ``items`` into batches within a size budget, order preserved.
+
+    A batch is closed when adding the next item would push it over ``budget``
+    (chars, tokens — whatever ``size_of`` counts) or over ``max_items``. Both
+    caps are disabled when ``<= 0``. A batch always holds at least one item, so
+    an item larger than ``budget`` on its own rides alone.
+    """
+    batches: list[list[Any]] = []
+    cur: list[Any] = []
+    cur_size = 0
+    for item in items:
+        size = size_of(item)
+        over_count = max_items > 0 and len(cur) + 1 > max_items
+        over_budget = budget > 0 and cur_size + size > budget
+        if cur and (over_count or over_budget):
+            batches.append(cur)
+            cur, cur_size = [], 0
+        cur.append(item)
+        cur_size += size
+    if cur:
+        batches.append(cur)
+    return batches
 
 
 def run_chunks(

@@ -5,7 +5,7 @@ output formats, JSON extraction from prose replies, and a sha256 response cache.
 See :mod:`claude_cli.runner` for the invariants this library exists to protect.
 """
 
-from .batch import run_chunks
+from .batch import pack_batches, run_chunks
 from .cache import (
     CacheStore,
     DictCacheStore,
@@ -30,7 +30,9 @@ from .runner import (
     arun_claude,
     build_args,
     claude_available,
+    ping,
     run_claude,
+    stream_claude,
 )
 
 __all__ = [
@@ -52,9 +54,12 @@ __all__ = [
     "extract_json",
     "extract_json_or_none",
     "normalize_prompt",
+    "pack_batches",
     "parse_envelope",
     "parse_stream",
+    "ping",
     "run_chunks",
     "run_claude",
+    "stream_claude",
     "strip_fences",
 ]

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from claude_cli.parsing import clean_cli_text, error_detail, strip_ansi
 from claude_cli import (
     extract_json,
     extract_json_or_none,
@@ -20,6 +21,11 @@ def test_strip_fences_plain_passthrough():
 @pytest.mark.parametrize("fence", ["```", "```json"])
 def test_strip_fences(fence):
     assert strip_fences(f'{fence}\n{{"a": 1}}\n```') == '{"a": 1}'
+
+
+@pytest.mark.parametrize("fence", ["```", "```json "])
+def test_strip_fences_single_line(fence):
+    assert strip_fences(f'{fence}{{"a": 1}}```') == '{"a": 1}'
 
 
 def test_extract_json_fenced():
@@ -81,3 +87,51 @@ def test_parse_stream_picks_final_result_event():
 
 def test_parse_stream_no_result_event():
     assert parse_stream('{"type":"system"}') == {}
+
+
+def test_parse_envelope_skips_wrapper_banner_on_stdout():
+    # `omniroute run claude` prints its banner on stdout, ahead of the envelope.
+    stdout = "  📋 Loaded env from ~/.omniroute/.env\n" '{"result":"hi","is_error":false}'
+    assert parse_envelope(stdout)["result"] == "hi"
+
+
+def test_error_detail_keeps_the_tail_of_a_noisy_stderr():
+    # The real failure is last; a leading wrapper banner must not crowd it out.
+    stderr = "⚠ banner\n" * 200 + "Error: the actual cause"
+    assert error_detail("", stderr, None).endswith("Error: the actual cause")
+
+
+def test_strip_ansi_removes_color_codes():
+    assert strip_ansi("\x1b[33m⚠ warning\x1b[0m") == "⚠ warning"
+
+
+def test_strip_ansi_passthrough_plain_text():
+    assert strip_ansi("plain text, no escapes") == "plain text, no escapes"
+
+
+def test_clean_cli_text_drops_known_omniroute_noise():
+    # Real tail from tlf logs/2026-08-30-10-04-50.log (lines 843-862).
+    tail = "\n".join(
+        [
+            "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in /home/octrow/.nvm/.../omniroute/.env "
+            "is ignored, /home/octrow/.omniroute/.env set it first\x1b[0m",
+            "\x1b[33m⚠ REQUIRE_API_KEY in ... is ignored, ... set it first\x1b[0m",
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another "
+            "auth source is set and takes precedence over your claude.ai login · "
+            "Unset it to load your organization's ...",
+            "📋 Loaded env from /home/octrow/.omniroute/.env",
+            "Error: something actually broke",
+        ]
+    )
+    cleaned = clean_cli_text(tail)
+    assert cleaned == "Error: something actually broke"
+
+
+def test_clean_cli_text_only_noise_yields_empty_string():
+    tail = "📋 Loaded env from /home/octrow/.omniroute/.env\n⚠ FOO in x is ignored, y set it first"
+    assert clean_cli_text(tail) == ""
+
+
+def test_clean_cli_text_never_touches_unrelated_warnings():
+    # Narrow patterns only — a real warning must survive.
+    assert clean_cli_text("Warning: disk almost full") == "Warning: disk almost full"

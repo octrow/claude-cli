@@ -1,6 +1,6 @@
 # claude-cli
 
-One hardened wrapper around the local `claude -p` CLI (Claude Code
+One hardened wrapper around `omniroute run claude -- -p` (Claude Code
 **subscription** / OAuth — there is no `ANTHROPIC_API_KEY`), extracted from six
 independent copies of the same subprocess contract (dialogue-lens,
 tiktok-lazy-follower, get_cool_event, finance-insights, chat-watch, buy-smarter).
@@ -11,6 +11,8 @@ stdlib only. Python ≥3.12.
 
 * **NEVER pass `--bare`** — it forces API-key-only mode and breaks subscription
   auth. The flag is intentionally absent from `build_args`; a test guards it.
+* **OmniRoute is mandatory** — every Claude Code subprocess is launched via
+  `omniroute run claude`, so the local OmniRoute gateway owns routing.
 * **Isolated surface**: an empty temp mcp-config + `--strict-mcp-config`,
   `--setting-sources user`, `--disable-slash-commands`,
   `--no-session-persistence`.
@@ -27,6 +29,12 @@ stdlib only. Python ≥3.12.
 
 All errors derive from `ClaudeCliError(RuntimeError)`, so `except RuntimeError`
 graceful-degrade paths keep working.
+
+When the failure is the gateway's rather than Claude's, the error text says so and points at
+OmniRoute's own docs and issues. A 503 is ambiguous there — a spent quota and
+`ALL_TARGETS_SKIPPED` (no provider matched at all) share the number, and only the first is worth
+waiting out. [docs/OMNIROUTE.md](docs/OMNIROUTE.md) has the diagnosis order, the recognisable
+error strings, and the checks that cost no quota.
 
 ## Usage
 
@@ -45,6 +53,27 @@ Streaming envelope (long runs, tlf/gce style):
 
 ```python
 res = run_claude(prompt, model="sonnet", output_format="stream-json")
+```
+
+Live progress — `stream_claude` calls back per event *while the run is going*, instead of
+handing you the whole stream at the end (stackpulse `apply_batch` style):
+
+```python
+from claude_cli import stream_claude
+
+res = stream_claude(prompt, lambda ev: print(ev["type"]), model="opus", timeout=3600)
+```
+
+Project mode (opt-in, reverses the isolation invariants above) — run a project's own slash
+command with its `CLAUDE.md` and settings loaded, and let it write files:
+
+```python
+res = stream_claude(
+    "/apply data/export/interested/acme.md", on_event,
+    cwd="~/dev/cv-adapter", slash_commands=True,
+    setting_sources="user,project", permission_mode="acceptEdits",
+    tools="Read,Write,Edit,Bash,WebFetch",
+)
 ```
 
 Async (buy-smarter style):
@@ -81,6 +110,18 @@ results, cost, failed = run_chunks(chunks, summarize, label=str, workers=4)
 `claude_available()` reports whether the CLI is on PATH, for callers that degrade
 to a non-LLM path. `ClaudeCliProvider` / `LLMProvider` are the one-method
 (`ask(prompt, *, model=None) -> str`) seam for swappable backends.
+
+`ping(model="haiku", timeout=90) -> (bool, str)` makes one real call through
+OmniRoute ("reply with the single word pong") for "doctor"-style startup
+checks that want proof the whole path works, not just `claude_available()`'s
+PATH check. Never raises: `(True, "pong via omniroute, 6.2s")` on success,
+`(False, <cleaned error, ≤200 chars>)` on any exception or timeout.
+
+Before classification and truncation, stderr/stdout are cleaned of ANSI codes
+and OmniRoute's own banner/warning lines (env-file banner, "is ignored, ...
+set it first", disabled-connectors notice) so a real error at the tail of a
+noisy run isn't crowded out by wrapper noise; `ClaudeCliError.message` carries
+the cleaned text.
 
 `cached_run` never persists the prompt by default (`store_prompt=False`) — prompts
 often embed privacy-gated payloads, so only the sha256 key touches disk. Callers

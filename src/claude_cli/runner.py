@@ -1,8 +1,10 @@
-"""The one place a ``claude -p`` subprocess is spawned.
+"""The one place a ``claude -p`` subprocess is spawned through OmniRoute.
 
 Invariants (learned the hard way, previously duplicated as comments in six
 repos — change them here and nowhere else):
 
+* **Always launch through ``omniroute run claude``.** This routes every Claude
+  Code request through the local OmniRoute gateway.
 * **NEVER pass ``--bare``.** It forces ``ANTHROPIC_API_KEY``-only mode and
   breaks the Claude Code *subscription* auth every consumer relies on. The flag
   is intentionally absent from :func:`build_args`.
@@ -11,17 +13,29 @@ repos — change them here and nowhere else):
   ``--no-session-persistence``: no project MCP servers, no project settings, no
   slash commands, no session files left behind.
 * **Run from a throwaway cwd** so no project ``CLAUDE.md`` is auto-discovered.
+* **Project mode is opt-in and reverses the two above.** ``cwd=`` plus
+  ``slash_commands=True`` / ``setting_sources="user,project"`` /
+  ``permission_mode=`` runs a project's own slash command (``/apply <file>``) with
+  its ``CLAUDE.md`` and settings loaded. That is a different trust posture — the
+  run reads project config and may write files — so nothing about it is a default.
 * ``--tools ""`` by default (no tool use at all). A non-empty ``tools`` value is
   passed to BOTH ``--tools`` and ``--allowed-tools``: headless ``-p`` mode
   auto-denies any call not on the allow-list, so an enabled-but-not-allowed tool
   would stall or fail silently mid-run.
 * "Not logged in" and usage-limit signatures are classified before the exit code
   so callers get an actionable, fail-fast error instead of a generic non-zero.
+* **A gateway failure is not a Claude failure.** OmniRoute answers 503 both when a
+  provider quota is spent and when no provider matched at all
+  (``ALL_TARGETS_SKIPPED`` — a restricted API key, a combo resolving to nothing).
+  The second is a config bug that waiting never fixes, so it is deliberately kept
+  out of :data:`_USAGE_LIMIT_RE` and instead earns a pointer to OmniRoute's own
+  docs and issues. See ``docs/OMNIROUTE.md`` for the diagnosis order.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import shutil
@@ -30,20 +44,49 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from .errors import ClaudeCliError, NotLoggedInError, UsageLimitError
-from .parsing import error_detail, parse_envelope, parse_stream
+from .parsing import clean_cli_text, error_detail, parse_envelope, parse_stream
 
 log = logging.getLogger(__name__)
 
 #: Model aliases the CLI accepts (cheap/fast → deep). Passed through verbatim.
+#:
+#: Claude Code expands these to ``claude-haiku-*`` / ``claude-sonnet-*`` /
+#: ``claude-opus-*``, and OmniRoute's model→combo glob mappings turn that into a
+#: routing tier (dashboard: Settings → Routing, or ``/api/model-combo-mappings``):
+#:
+#: * ``opus``   → combo ``sub-first-opus`` — paid subscription Opus, then free Opus-class.
+#: * ``sonnet`` → combo ``sub-first``      — paid subscription Sonnet, then free Sonnet-class.
+#: * ``haiku``  → combo ``free-first``     — free providers first, subscription LAST.
+#:
+#: So ``haiku`` is the "bulk work, spare the $20 plan" lever, not a quality choice.
+#: Never send ``combo/<name>`` as the model: Claude Code rejects an unrecognized
+#: model id locally (``claude-code:unrecognized_model``) before the request leaves.
 MODELS = ("haiku", "sonnet", "opus")
 
 #: Narrow on purpose: a bare "limit" would false-positive on batch-local errors
 #: ("context limit exceeded") and abort a whole run for one oversized prompt.
 _USAGE_LIMIT_RE = re.compile(
     r"usage limit|session limit|rate.?limit|quota exceeded|too many requests|\b429\b",
+    re.IGNORECASE,
+)
+
+#: Where to look when the gateway itself is the problem. Named here rather than in a comment
+#: because they belong in the *error text* a caller sees at 3am, not in a file nobody opens.
+OMNIROUTE_DOCS = "https://github.com/diegosouzapw/OmniRoute#-documentation"
+OMNIROUTE_ISSUES = "https://github.com/diegosouzapw/OmniRoute/issues"
+
+#: A failure that came from OmniRoute, not from Claude. Deliberately *not* folded into
+#: `_USAGE_LIMIT_RE`: a 503 `ALL_TARGETS_SKIPPED` means no provider matched the request (a wrong
+#: `allowedModels` on the API key, a combo that resolves to nothing), which reads like a quota
+#: error and is not one — retrying or waiting fixes nothing. Widening the limit pattern to cover
+#: it would abort runs that a config fix would have saved.
+_GATEWAY_RE = re.compile(
+    r"ALL_TARGETS_SKIPPED|no targets|\bomniroute\b|\b50[23]\b|socket hang up"
+    r"|ECONNREFUSED|unsupported_country_region_territory|unrecognized_model",
     re.IGNORECASE,
 )
 
@@ -67,8 +110,8 @@ class ClaudeResult:
 
 
 def claude_available() -> bool:
-    """True if the ``claude`` CLI is on PATH."""
-    return shutil.which("claude") is not None
+    """True if OmniRoute and the underlying ``claude`` CLI are on PATH."""
+    return shutil.which("omniroute") is not None and shutil.which("claude") is not None
 
 
 def build_args(
@@ -78,9 +121,12 @@ def build_args(
     output_format: str = "json",
     tools: str = "",
     mcp_config: str,
+    slash_commands: bool = False,
+    setting_sources: str = "user",
+    permission_mode: str | None = None,
 ) -> list[str]:
-    """Build the argv for one ``claude -p`` call. Never includes ``--bare``."""
-    args = ["claude", "-p", "--model", model]
+    """Build argv for one Claude call through OmniRoute. Never includes ``--bare``."""
+    args = ["omniroute", "run", "claude", "--", "-p", "--model", model]
     if effort:
         args += ["--effort", effort]
     args += ["--output-format", output_format]
@@ -91,9 +137,12 @@ def build_args(
     args += ["--no-session-persistence", "--tools", tools]
     if tools:
         args += ["--allowed-tools", tools]
+    if not slash_commands:
+        args += ["--disable-slash-commands"]
+    if permission_mode:
+        args += ["--permission-mode", permission_mode]
     args += [
-        "--disable-slash-commands",
-        "--setting-sources", "user",
+        "--setting-sources", setting_sources,
         "--strict-mcp-config",
         "--mcp-config", mcp_config,
     ]
@@ -104,6 +153,35 @@ def _write_empty_mcp(work_dir: str) -> str:
     path = Path(work_dir) / "mcp-empty.json"
     path.write_text(_EMPTY_MCP, encoding="utf-8")
     return str(path)
+
+
+def _gateway_hint(combined: str) -> str:
+    """A pointer to OmniRoute's own docs, appended when the failure looks like the gateway's.
+
+    Diagnosis order, cheapest first (none of these spend quota):
+    `omniroute health` → `omniroute doctor` → `omniroute run claude --dry-run --json`
+    (shows the planned command without executing) → `omniroute logs` → `omniroute quota`.
+    """
+    if not _GATEWAY_RE.search(combined):
+        return ""
+    return (
+        f"\nThis looks like OmniRoute, not Claude. Cheapest checks first, none spend quota: "
+        f"`omniroute health`, `omniroute doctor`, "
+        f"`omniroute run claude --dry-run --json`, `omniroute logs`, `omniroute quota`. "
+        f"Docs: {OMNIROUTE_DOCS} — issues: {OMNIROUTE_ISSUES}"
+    )
+
+
+def _matched_line(combined: str, hit: re.Match) -> str:
+    """The line that actually matched the limit pattern.
+
+    Not `error_detail`: it prefers stderr, so an unrelated stderr warning (an untrusted-workspace
+    notice, an omniroute banner) gets reported as the limit message while the real
+    "You've hit your session limit" sits in stdout, unread.
+    """
+    start = combined.rfind("\n", 0, hit.start()) + 1
+    end = combined.find("\n", hit.end())
+    return combined[start:end if end != -1 else len(combined)].strip()[:500]
 
 
 def _finish(
@@ -117,23 +195,32 @@ def _finish(
     """Classify a finished run: raise on failure, else return the result."""
     env = parse_stream(stdout) if output_format == "stream-json" else {}
     result = env.get("result") if isinstance(env.get("result"), str) else None
-    combined = (stdout or "") + "\n" + (stderr or "")
+    clean_stdout = clean_cli_text(stdout or "")
+    clean_stderr = clean_cli_text(stderr or "")
+    combined = clean_stdout + "\n" + clean_stderr
 
-    if _USAGE_LIMIT_RE.search(combined):
+    # Only a FAILED run's output is evidence of a limit or a login problem: a
+    # successful answer may legitimately discuss "rate limits" or "not logged in"
+    # (ponytail: gate on failure, don't try to outsmart the regex).
+    failed = returncode != 0 or bool(env.get("is_error"))
+
+    if failed and (limit_hit := _USAGE_LIMIT_RE.search(combined)):
         raise UsageLimitError(
-            f"claude hit a usage/rate limit: {error_detail(stdout, stderr, result)}",
+            f"claude hit a usage/rate limit: {_matched_line(combined, limit_hit)}",
             stdout=stdout,
         )
-    if "Not logged in" in combined:
+    if failed and "Not logged in" in combined:
         raise NotLoggedInError(
             "claude reports 'Not logged in' — run `claude` once interactively, "
             "complete /login, then retry.",
             stdout=stdout,
         )
     if returncode != 0:
+        detail = error_detail(clean_stdout, clean_stderr, result)
+        if detail == "(no output)" and ((stdout or "") + (stderr or "")).strip():
+            detail = "(stderr held only omniroute warnings)"
         raise ClaudeCliError(
-            f"claude exited {returncode}: {error_detail(stdout, stderr, result)}",
-            stdout=stdout,
+            f"claude exited {returncode}: {detail}{_gateway_hint(combined)}", stdout=stdout
         )
 
     if output_format != "stream-json":
@@ -143,7 +230,7 @@ def _finish(
             raise ClaudeCliError(str(exc), stdout=stdout) from exc
     if env.get("is_error"):
         raise ClaudeCliError(
-            f"claude error: {str(env.get('result'))[-300:]}", stdout=stdout
+            f"claude error: {clean_cli_text(str(env.get('result')))[-300:]}", stdout=stdout
         )
     text = env.get("result")
     if not isinstance(text, str) or not text:
@@ -171,25 +258,35 @@ def run_claude(
     timeout: int = 300,
     tools: str = "",
     output_format: str = "json",
+    cwd: str | Path | None = None,
+    slash_commands: bool = False,
+    setting_sources: str = "user",
+    permission_mode: str | None = None,
 ) -> ClaudeResult:
     """Run one prompt through the local CLI (blocking).
+
+    ``cwd`` runs inside a real project (its ``CLAUDE.md`` is discovered) instead of
+    the throwaway dir; pair it with ``slash_commands=True`` and
+    ``setting_sources="user,project"`` to invoke that project's own commands.
 
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
     """
     log.info(
-        "claude call: model=%s effort=%s prompt=%d chars tools=%r",
-        model, effort, len(prompt), tools,
+        "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)",
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format=output_format,
             tools=tools, mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands, setting_sources=setting_sources,
+            permission_mode=permission_mode,
         )
         try:
             proc = subprocess.run(
-                args, input=prompt, cwd=work,
+                args, input=prompt, cwd=str(cwd) if cwd else work,
                 capture_output=True, text=True, check=False, timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
@@ -201,6 +298,95 @@ def run_claude(
     )
 
 
+def stream_claude(
+    prompt: str,
+    on_event: Callable[[dict], None],
+    *,
+    model: str = "sonnet",
+    effort: str | None = "medium",
+    timeout: int = 300,
+    tools: str = "",
+    cwd: str | Path | None = None,
+    slash_commands: bool = False,
+    setting_sources: str = "user",
+    permission_mode: str | None = None,
+) -> ClaudeResult:
+    """:func:`run_claude`, but ``on_event`` sees each stream-json event as it arrives.
+
+    Same flags, same errors, same :class:`ClaudeResult`. The format is forced to
+    ``stream-json`` — that is the only shape the CLI emits incrementally. A long agentic
+    run (tool calls, file writes) reports progress instead of looking wedged for minutes.
+    """
+    log.info(
+        "claude stream: model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)",
+    )
+    started = time.monotonic()
+    deadline = started + timeout
+    lines: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
+        args = build_args(
+            model=model, effort=effort, output_format="stream-json",
+            tools=tools, mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands, setting_sources=setting_sources,
+            permission_mode=permission_mode,
+        )
+        proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, cwd=str(cwd) if cwd else work,
+        )
+        try:
+            stderr = _pump(proc, prompt, on_event, lines, deadline=deadline, timeout=timeout)
+        except BaseException:  # timeout, a raising callback, Ctrl-C — never leave it running
+            proc.kill()
+            proc.wait()
+            raise
+    return _finish(
+        proc.returncode, "".join(lines), stderr,
+        output_format="stream-json",
+        elapsed_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def _pump(
+    proc: subprocess.Popen,
+    prompt: str,
+    on_event: Callable[[dict], None],
+    lines: list[str],
+    *,
+    deadline: float,
+    timeout: int,
+) -> str:
+    """Feed the prompt in, report every event out, collect the raw lines. Returns stderr.
+
+    All three pipes exist: the caller opened the process with ``stdin/stdout/stderr=PIPE``.
+    """
+    proc.stdin.write(prompt)  # type: ignore[union-attr]
+    proc.stdin.close()  # type: ignore[union-attr]
+    for line in proc.stdout:  # type: ignore[union-attr]
+        lines.append(line)
+        if time.monotonic() > deadline:
+            raise ClaudeCliError(f"claude timed out after {timeout}s")
+        event = _as_event(line)
+        if event is not None:
+            on_event(event)
+    stderr = proc.stderr.read()  # type: ignore[union-attr]
+    proc.wait(timeout=max(1, int(deadline - time.monotonic())))
+    return stderr
+
+
+def _as_event(line: str) -> dict | None:
+    """One stream-json line as a dict, or None for the stream's non-JSON noise."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return event if isinstance(event, dict) else None
+
+
 async def arun_claude(
     prompt: str,
     *,
@@ -209,24 +395,30 @@ async def arun_claude(
     timeout: int = 300,
     tools: str = "",
     output_format: str = "json",
+    cwd: str | Path | None = None,
+    slash_commands: bool = False,
+    setting_sources: str = "user",
+    permission_mode: str | None = None,
 ) -> ClaudeResult:
     """:func:`run_claude` on asyncio — same flags, same errors."""
     log.info(
-        "claude call (async): model=%s effort=%s prompt=%d chars tools=%r",
-        model, effort, len(prompt), tools,
+        "claude call (async): model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)",
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format=output_format,
             tools=tools, mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands, setting_sources=setting_sources,
+            permission_mode=permission_mode,
         )
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=work,
+            cwd=str(cwd) if cwd else work,
         )
         try:
             out, err = await asyncio.wait_for(
@@ -243,6 +435,27 @@ async def arun_claude(
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
     )
+
+
+def ping(model: str = "haiku", timeout: float = 90) -> tuple[bool, str]:
+    """Real end-to-end check through OmniRoute — never raises.
+
+    For "doctor"-style startup checks that want proof the whole path works
+    (omniroute reachable, claude authenticated, subscription routing intact)
+    instead of :func:`claude_available`'s PATH-only check.
+
+    Returns ``(True, "pong via omniroute, <n>s")`` on success, or
+    ``(False, <cleaned error, ≤200 chars>)`` on any exception or timeout.
+    """
+    started = time.monotonic()
+    try:
+        run_claude(
+            "reply with the single word pong", model=model, timeout=int(timeout)
+        )
+    except Exception as exc:  # noqa: BLE001 - a doctor check must never raise
+        return False, clean_cli_text(str(exc))[:200]
+    elapsed = time.monotonic() - started
+    return True, f"pong via omniroute, {elapsed:.1f}s"
 
 
 @runtime_checkable

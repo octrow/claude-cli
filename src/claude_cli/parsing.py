@@ -19,6 +19,9 @@ _META_KEYS = (
 
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 
+#: CSI escape sequences (colour codes and friends) — terminal decoration only.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
 
 def strip_fences(text: str) -> str:
     """Drop a leading/trailing markdown code fence (```json ... ```), if present."""
@@ -26,6 +29,11 @@ def strip_fences(text: str) -> str:
     if not stripped.startswith("```"):
         return stripped
     lines = stripped.splitlines()
+    if len(lines) == 1:
+        # ponytail: one-line reply (```json [1,2]```) has no newline to split on
+        inner = stripped.removeprefix("```").removesuffix("```").strip()
+        lang, sep, rest = inner.partition(" ")
+        return rest.strip() if sep and lang.isalpha() else inner
     if lines and lines[0].startswith("```"):
         lines = lines[1:]
     if lines and lines[-1].strip().startswith("```"):
@@ -77,12 +85,67 @@ def extract_json_or_none(text: str) -> Any | None:
         return None
 
 
+def strip_ansi(text: str) -> str:
+    """Drop ANSI/CSI escape sequences (colour codes) from CLI output."""
+    return _ANSI_RE.sub("", text)
+
+
+def _is_omniroute_banner_line(line: str) -> bool:
+    """True for a known OmniRoute banner/warning line, never the real error.
+
+    Narrow on purpose — three specific shapes only, matched on the plain
+    (post-ANSI-strip) line so a genuine error never gets swallowed alongside
+    the wrapper's noise:
+
+    * ``📋 Loaded env from <path>`` — the env-file banner it prints on every run.
+    * ``... is ignored, ... set it first`` — its "your env var is shadowed" warning.
+    * ``... connectors are disabled because ANTHROPIC_API_KEY ...`` — its
+      claude.ai-connector notice.
+    """
+    normalized = line.strip().lstrip("⚠📋").strip()
+    if normalized.startswith("Loaded env from"):
+        return True
+    if " is ignored, " in line and "set it first" in line:
+        return True
+    if "connectors are disabled because ANTHROPIC_API_KEY" in line:
+        return True
+    return False
+
+
+def strip_omniroute_noise(text: str) -> str:
+    """Drop OmniRoute's banner/warning lines so the real error survives truncation.
+
+    Apply before failure classification (usage-limit / not-logged-in regexes)
+    and before any tail-truncation (``error_detail``'s ``[-500:]``, the
+    ``is_error`` envelope's ``[-300:]``) — otherwise a handful of omniroute
+    warnings can fill the truncated window and push the real error out of it.
+    """
+    lines = [line for line in text.splitlines() if not _is_omniroute_banner_line(line)]
+    return "\n".join(lines)
+
+
+def clean_cli_text(text: str) -> str:
+    """Strip ANSI codes then OmniRoute noise — the standard pre-classification cleanup."""
+    return strip_omniroute_noise(strip_ansi(text))
+
+
 def parse_envelope(stdout: str) -> dict:
-    """Parse the single ``--output-format json`` envelope. Raises ValueError."""
+    """Parse the single ``--output-format json`` envelope. Raises ValueError.
+
+    OmniRoute prints its "Loaded env from …" banner on *stdout* before handing
+    over to the CLI, so the envelope is not always the first thing on the stream;
+    fall back to the first ``{`` (``parse_stream`` already skips such noise).
+    """
     try:
         env = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"claude returned non-JSON: {stdout[-300:]}") from exc
+        start = stdout.find("{")
+        try:
+            env = json.loads(stdout[start:]) if start != -1 else None
+        except json.JSONDecodeError:
+            env = None
+        if env is None:
+            raise ValueError(f"claude returned non-JSON: {stdout[-300:]}") from exc
     if not isinstance(env, dict):
         raise ValueError(f"unexpected claude envelope: {type(env).__name__}")
     return env
@@ -119,8 +182,10 @@ def error_detail(stdout: str, stderr: str, result: str | None) -> str:
     session limit …") only appears in the result event or raw stdout, so fall
     back to those instead of an empty "claude exited 1:" tail.
     """
+    # Tail, not head: a wrapper (omniroute) prints a multi-line banner before the
+    # real failure, and [:500] would return only the banner.
     if stderr.strip():
-        return stderr.strip()[:500]
+        return stderr.strip()[-500:]
     if result:
         return re.sub(r"\s+", " ", result).strip()[:500]
     for line in reversed((stdout or "").splitlines()):

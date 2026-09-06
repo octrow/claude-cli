@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
+
 from claude_cli import (
     ClaudeCliProvider,
     ClaudeResult,
@@ -128,3 +132,27 @@ def test_cached_run_survives_a_broken_store():
             raise OSError("disk full")
 
     assert cached_run(_runner(), Broken(), "p") == "answer"
+
+
+def test_file_store_expires_rows_older_than_max_age(tmp_path):
+    """A year-old answer is worth reusing; a stale one must not silently win."""
+    store = FileCacheStore(tmp_path / "llm.db", max_age_days=365)
+    store.put("k", "answer")
+    assert store.get("k") == "answer"
+
+    # rewrite created_at to 400 days ago, straight in the file
+    old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    with closing(sqlite3.connect(tmp_path / "llm.db")) as conn:
+        conn.execute("UPDATE claude_cli_cache SET created_at = ?", (old,))
+        conn.commit()
+    assert store.get("k") is None
+
+
+def test_file_store_without_max_age_keeps_everything(tmp_path):
+    store = FileCacheStore(tmp_path / "llm.db")
+    store.put("k", "answer")
+    old = (datetime.now(timezone.utc) - timedelta(days=4000)).isoformat()
+    with closing(sqlite3.connect(tmp_path / "llm.db")) as conn:
+        conn.execute("UPDATE claude_cli_cache SET created_at = ?", (old,))
+        conn.commit()
+    assert store.get("k") == "answer"

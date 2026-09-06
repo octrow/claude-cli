@@ -12,7 +12,7 @@ import hashlib
 import logging
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -80,8 +80,15 @@ class FileCacheStore:
     there is no thread pool or aiosqlite here.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, max_age_days: int | None = None) -> None:
+        """``max_age_days`` expires rows on read; None (default) keeps them forever.
+
+        A row is never deleted here — an expired hit is simply ignored, so the next
+        call re-asks and overwrites it. That keeps ``created_at`` history intact and
+        avoids a delete path that could lose a still-valid answer on a clock skew.
+        """
         self.path = Path(path).expanduser()
+        self.max_age_days = max_age_days
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn:
             conn.execute(_SCHEMA)
@@ -95,9 +102,21 @@ class FileCacheStore:
     def get(self, key: str) -> str | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
-                "SELECT response FROM claude_cli_cache WHERE key = ?", (key,)
+                "SELECT response, created_at FROM claude_cli_cache WHERE key = ?", (key,)
             ).fetchone()
-        return row[0] if row is not None else None
+        if row is None:
+            return None
+        return row[0] if self._fresh(row[1]) else None
+
+    def _fresh(self, created_at: str | None) -> bool:
+        if self.max_age_days is None:
+            return True
+        try:
+            written = datetime.fromisoformat(created_at or "")
+        except ValueError:  # unparseable timestamp: treat as expired, re-ask rather than trust
+            return False
+        age = datetime.now(timezone.utc) - written
+        return age <= timedelta(days=self.max_age_days)
 
     def put(self, key: str, text: str, **meta) -> None:
         with closing(self._connect()) as conn:
