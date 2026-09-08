@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 *.egg-info/
 graphify-out/
+
+# Editor/agent tool deps
+node_modules/

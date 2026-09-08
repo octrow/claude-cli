@@ -49,6 +49,7 @@ from typing import Protocol, runtime_checkable
 
 from .errors import ClaudeCliError, NotLoggedInError, UsageLimitError
 from .parsing import clean_cli_text, error_detail, parse_envelope, parse_stream
+from .preflight import TIERS
 
 log = logging.getLogger(__name__)
 
@@ -58,11 +59,17 @@ log = logging.getLogger(__name__)
 #: ``claude-opus-*``, and OmniRoute's model→combo glob mappings turn that into a
 #: routing tier (dashboard: Settings → Routing, or ``/api/model-combo-mappings``):
 #:
-#: * ``opus``   → combo ``sub-first-opus`` — paid subscription Opus, then free Opus-class.
-#: * ``sonnet`` → combo ``sub-first``      — paid subscription Sonnet, then free Sonnet-class.
-#: * ``haiku``  → combo ``free-first``     — free providers first, subscription LAST.
+#: * ``opus``   → combo ``hard``       — subscriptions only: Claude Opus 5, then
+#:   ChatGPT (gpt-5.6-terra) and Grok 4.6, Claude Sonnet 5, metered GLM-5.3 last.
+#: * ``sonnet`` → combo ``free-stack`` — free/plan-included ladder led by
+#:   muse-spark-1.2-contributor-free; every target verified to emit tool_calls.
+#: * ``haiku``  → combo ``free-first``  — the older free ladder (several targets are
+#:   currently quota-exhausted; see OmniRoute _artifacts/MODEL-STATUS.md).
 #:
-#: So ``haiku`` is the "bulk work, spare the $20 plan" lever, not a quality choice.
+#: So ``sonnet`` is now the "bulk work, spare the $20 plan" lever: it costs nothing
+#: and does NOT touch the Claude subscription. ``opus`` is the one that spends it —
+#: and the one where prompt caching actually pays off (``hard`` runs with
+#: context_cache_protection on, so the combo is pinned per conversation).
 #: Never send ``combo/<name>`` as the model: Claude Code rejects an unrecognized
 #: model id locally (``claude-code:unrecognized_model``) before the request leaves.
 MODELS = ("haiku", "sonnet", "opus")
@@ -85,7 +92,9 @@ OMNIROUTE_ISSUES = "https://github.com/diegosouzapw/OmniRoute/issues"
 #: error and is not one — retrying or waiting fixes nothing. Widening the limit pattern to cover
 #: it would abort runs that a config fix would have saved.
 _GATEWAY_RE = re.compile(
-    r"ALL_TARGETS_SKIPPED|no targets|\bomniroute\b|\b50[23]\b|socket hang up"
+    r"ALL_TARGETS_SKIPPED|no targets|no provider matched|\bomniroute\b|\b50[23]\b"
+    r"|socket hang up|keepAlive|pipelining|PROXY_FAST_FAIL|circuit.?breaker"
+    r"|fallback exhausted|allowedModels|resolves to nothing"
     r"|ECONNREFUSED|unsupported_country_region_territory|unrecognized_model",
     re.IGNORECASE,
 )
@@ -107,6 +116,9 @@ class ClaudeResult:
     duration_ms: int | None = None
     raw: dict = field(default_factory=dict)
     stdout: str = ""
+    #: Requested serving tier (ultra/high/middle/low), echoed from the call so
+    #: free-vs-paid spend stays diagnosable. None when the caller picked no tier.
+    tier: str | None = None
 
 
 def claude_available() -> bool:
@@ -124,9 +136,37 @@ def build_args(
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
+    tier: str | None = None,
+    remote: str | None = None,
+    base_url: str | None = None,
+    context: str | None = None,
+    provider: str | None = None,
+    profile: str | None = None,
 ) -> list[str]:
-    """Build argv for one Claude call through OmniRoute. Never includes ``--bare``."""
-    args = ["omniroute", "run", "claude", "--", "-p", "--model", model]
+    """Build argv for one Claude call through OmniRoute. Never includes ``--bare``.
+
+    ``tier`` (ultra/high/middle/low) selects the OmniRoute-side combo/profile of
+    that name via the gateway-level ``--profile`` flag placed before ``--``: the
+    Claude-side ``--model`` stays haiku/sonnet/opus because Claude Code rejects
+    ``combo/<name>`` locally. ``remote``/``base_url``/``context``/``provider``/
+    ``profile`` are explicit opt-ins for remote-mode and routing overrides; all
+    default to off so plain calls keep the historical argv untouched.
+    """
+    if tier is not None and tier not in TIERS:
+        raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
+    gateway: list[str] = []
+    if remote:
+        gateway += ["--remote", remote]
+    if base_url:
+        gateway += ["--base-url", base_url]
+    if context:
+        gateway += ["--context", context]
+    if provider:
+        gateway += ["--provider", provider]
+    resolved_profile = profile or tier
+    if resolved_profile:
+        gateway += ["--profile", resolved_profile]
+    args = ["omniroute", "run", *gateway, "claude", "--", "-p", "--model", model]
     if effort:
         args += ["--effort", effort]
     args += ["--output-format", output_format]
@@ -155,7 +195,7 @@ def _write_empty_mcp(work_dir: str) -> str:
     return str(path)
 
 
-def _gateway_hint(combined: str) -> str:
+def _gateway_hint(combined: str, tier: str | None = None) -> str:
     """A pointer to OmniRoute's own docs, appended when the failure looks like the gateway's.
 
     Diagnosis order, cheapest first (none of these spend quota):
@@ -164,10 +204,14 @@ def _gateway_hint(combined: str) -> str:
     """
     if not _GATEWAY_RE.search(combined):
         return ""
+    scope = f" (tier {tier})" if tier else ""
     return (
-        f"\nThis looks like OmniRoute, not Claude. Cheapest checks first, none spend quota: "
+        f"\nThis looks like OmniRoute{scope}, not Claude. Cheapest checks first, none spend quota: "
         f"`omniroute health`, `omniroute doctor`, "
         f"`omniroute run claude --dry-run --json`, `omniroute logs`, `omniroute quota`. "
+        f"For routing add `omniroute simulate [--combo <tier>]`, `omniroute status`, "
+        f"`models`, `combo list`, `test <provider> <model>`; for spend add "
+        f"`omniroute cost --group-by combo` and `omniroute usage`. "
         f"Docs: {OMNIROUTE_DOCS} — issues: {OMNIROUTE_ISSUES}"
     )
 
@@ -191,6 +235,7 @@ def _finish(
     *,
     output_format: str,
     elapsed_ms: int,
+    tier: str | None = None,
 ) -> ClaudeResult:
     """Classify a finished run: raise on failure, else return the result."""
     env = parse_stream(stdout) if output_format == "stream-json" else {}
@@ -220,7 +265,7 @@ def _finish(
         if detail == "(no output)" and ((stdout or "") + (stderr or "")).strip():
             detail = "(stderr held only omniroute warnings)"
         raise ClaudeCliError(
-            f"claude exited {returncode}: {detail}{_gateway_hint(combined)}", stdout=stdout
+            f"claude exited {returncode}: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
         )
 
     if output_format != "stream-json":
@@ -247,6 +292,7 @@ def _finish(
         duration_ms=int(duration) if duration is not None else elapsed_ms,
         raw=env,
         stdout=stdout,
+        tier=tier,
     )
 
 
@@ -262,6 +308,12 @@ def run_claude(
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
+    tier: str | None = None,
+    remote: str | None = None,
+    base_url: str | None = None,
+    context: str | None = None,
+    provider: str | None = None,
+    profile: str | None = None,
 ) -> ClaudeResult:
     """Run one prompt through the local CLI (blocking).
 
@@ -269,12 +321,17 @@ def run_claude(
     the throwaway dir; pair it with ``slash_commands=True`` and
     ``setting_sources="user,project"`` to invoke that project's own commands.
 
+    ``tier`` selects an OmniRoute-side combo/profile (ultra/high/middle/low, free
+    targets first); the choice is echoed on ``ClaudeResult.tier`` and named in
+    gateway failure messages. ``remote``/``base_url``/``context``/``provider``/
+    ``profile`` are explicit remote-mode and routing overrides, all off by default.
+
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
     """
     log.info(
-        "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)",
+        "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)", tier,
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
@@ -283,6 +340,8 @@ def run_claude(
             tools=tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
+            tier=tier, remote=remote, base_url=base_url,
+            context=context, provider=provider, profile=profile,
         )
         try:
             proc = subprocess.run(
@@ -295,6 +354,7 @@ def run_claude(
         proc.returncode, proc.stdout or "", proc.stderr or "",
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
+        tier=tier,
     )
 
 
@@ -310,6 +370,12 @@ def stream_claude(
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
+    tier: str | None = None,
+    remote: str | None = None,
+    base_url: str | None = None,
+    context: str | None = None,
+    provider: str | None = None,
+    profile: str | None = None,
 ) -> ClaudeResult:
     """:func:`run_claude`, but ``on_event`` sees each stream-json event as it arrives.
 
@@ -318,8 +384,8 @@ def stream_claude(
     run (tool calls, file writes) reports progress instead of looking wedged for minutes.
     """
     log.info(
-        "claude stream: model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)",
+        "claude stream: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)", tier,
     )
     started = time.monotonic()
     deadline = started + timeout
@@ -330,6 +396,8 @@ def stream_claude(
             tools=tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
+            tier=tier, remote=remote, base_url=base_url,
+            context=context, provider=provider, profile=profile,
         )
         proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -345,6 +413,7 @@ def stream_claude(
         proc.returncode, "".join(lines), stderr,
         output_format="stream-json",
         elapsed_ms=int((time.monotonic() - started) * 1000),
+        tier=tier,
     )
 
 
@@ -399,11 +468,17 @@ async def arun_claude(
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
+    tier: str | None = None,
+    remote: str | None = None,
+    base_url: str | None = None,
+    context: str | None = None,
+    provider: str | None = None,
+    profile: str | None = None,
 ) -> ClaudeResult:
     """:func:`run_claude` on asyncio — same flags, same errors."""
     log.info(
-        "claude call (async): model=%s effort=%s prompt=%d chars tools=%r cwd=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)",
+        "claude call (async): model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
+        model, effort, len(prompt), tools, cwd or "(temp)", tier,
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
@@ -412,6 +487,8 @@ async def arun_claude(
             tools=tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
+            tier=tier, remote=remote, base_url=base_url,
+            context=context, provider=provider, profile=profile,
         )
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -434,6 +511,7 @@ async def arun_claude(
         err.decode("utf-8", "replace"),
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
+        tier=tier,
     )
 
 

@@ -117,6 +117,24 @@ checks that want proof the whole path works, not just `claude_available()`'s
 PATH check. Never raises: `(True, "pong via omniroute, 6.2s")` on success,
 `(False, <cleaned error, ≤200 chars>)` on any exception or timeout.
 
+Quota-free preflight (never raises, never spends quota):
+
+```python
+from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
+
+health()                          # (True, ...) — omniroute health
+simulate("hi", combo="free-first")
+dry_run_plan()["env_keys"]        # plan only: command + env key *names*
+```
+
+Four serving tiers (free targets first, subscription last — see
+`docs/OMNIROUTE.md` for the combo table):
+
+```python
+res = run_claude(prompt, model="sonnet", tier="high")  # ultra/high/middle/low
+res.tier  # "high" — echoed for spend attribution
+```
+
 Before classification and truncation, stderr/stdout are cleaned of ANSI codes
 and OmniRoute's own banner/warning lines (env-file banner, "is ignored, ...
 set it first", disabled-connectors notice) so a real error at the tail of a

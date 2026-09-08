@@ -450,3 +450,140 @@ def test_an_ordinary_failure_carries_no_omniroute_pointer(fake_run):
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("x")
     assert "OmniRoute" not in str(exc.value)
+
+
+# --- routing pass-throughs (omniroute-full-utilization) -----------------------
+
+def test_build_args_routing_defaults_off():
+    args = build_args(mcp_config="m")
+    assert args[:5] == ["omniroute", "run", "claude", "--", "-p"]
+    for flag in ("--remote", "--base-url", "--context", "--provider", "--profile"):
+        assert flag not in args
+    for flag in (
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+    ):
+        assert flag in args
+
+
+def test_build_args_routing_never_passes_bare():
+    combos = [
+        {"tier": "ultra"},
+        {"tier": "low", "remote": "http://gw:20128"},
+        {"tier": "high", "context": "prod", "provider": "agy"},
+        {"base_url": "http://gw:20128", "profile": "middle"},
+        {
+            "tier": "middle",
+            "remote": "http://gw:20128",
+            "context": "c",
+            "provider": "p",
+            "output_format": "stream-json",
+            "tools": "Read",
+            "slash_commands": True,
+            "setting_sources": "user,project",
+            "permission_mode": "acceptEdits",
+        },
+    ]
+    for kwargs in combos:
+        assert "--bare" not in build_args(mcp_config="m", **kwargs)
+
+
+def test_dry_run_returns_plan_without_execution(monkeypatch):
+    """The dry-run helper surfaces the plan; key names only, never secret values."""
+    import json as json_mod
+
+    from claude_cli.preflight import dry_run_plan
+
+    plan = {
+        "target": "claude",
+        "command": "claude",
+        "args": [],
+        "env": {"changedOrAdded": ["ANTHROPIC_BASE_URL"], "removed": []},
+    }
+    calls: list[list[str]] = []
+
+    def _run(args, **kwargs):
+        calls.append(list(args))
+        proc = FakeProc(returncode=0, stdout=json_mod.dumps(plan), stderr="")
+        return proc
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    result = dry_run_plan()
+    assert result["env_keys"] == ["ANTHROPIC_BASE_URL"]
+    assert "sk-" not in json_mod.dumps(result)
+    assert calls and "--dry-run" in calls[0] and "--json" in calls[0]
+
+
+def test_tier_leaves_claude_model_valid():
+    for tier in ("ultra", "high", "middle", "low"):
+        args = build_args(mcp_config="m", tier=tier)
+        assert args[:2] == ["omniroute", "run"]
+        claude_at = args.index("claude")
+        gateway = args[2:claude_at]
+        assert "--profile" in gateway and gateway[gateway.index("--profile") + 1] == tier
+        assert args[args.index("--model") + 1] in ("haiku", "sonnet", "opus")
+        assert "combo/" not in " ".join(args)
+        assert "--bare" not in args
+
+
+# --- execution classification (omniroute-full-utilization) --------------------
+
+def test_all_targets_skipped_is_gateway_not_limit(fake_run):
+    fake_run(returncode=1, stderr="503 ALL_TARGETS_SKIPPED: no target accepted")
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x")
+    assert not isinstance(exc.value, UsageLimitError)
+    assert "omniroute health" in str(exc.value)
+    assert "github.com/diegosouzapw/OmniRoute/issues" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "PROXY_FAST_FAIL_TIMEOUT_MS tripped",
+        "circuit breaker open for provider agy",
+        "allowedModels excludes every combo target",
+        "keepAliveTimeout: 1 suggested by PROXY_GUIDE",
+    ],
+)
+def test_gateway_strings_earn_docs_pointer(fake_run, msg):
+    fake_run(returncode=1, stderr=msg)
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x")
+    assert "github.com/diegosouzapw/OmniRoute" in str(exc.value)
+
+
+def test_gateway_hint_orders_free_checks_first(fake_run):
+    fake_run(returncode=1, stderr="ECONNREFUSED 127.0.0.1:20128")
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x")
+    message = str(exc.value)
+    assert message.index("`omniroute health`") < message.index("`omniroute doctor`")
+    assert message.index("`omniroute doctor`") < message.index("--dry-run")
+    assert message.index("--dry-run") < message.index("`omniroute quota`")
+
+
+def test_ping_shape_preserved(monkeypatch):
+    def fake_ok(prompt, *, model=None, timeout=None, **_kwargs):
+        return ClaudeResult(text="pong")
+
+    monkeypatch.setattr(runner_mod, "run_claude", fake_ok)
+    ok, message = ping()
+    assert (ok, message.startswith("pong via omniroute, ")) == (True, True)
+
+    def fake_boom(prompt, *, model=None, timeout=None, **_kwargs):
+        raise ClaudeCliError("boom")
+
+    monkeypatch.setattr(runner_mod, "run_claude", fake_boom)
+    ok, message = ping()
+    assert ok is False and len(message) <= 200
+
+
+def test_tier_attribution_survives_success_and_failure(fake_run):
+    fake_run()
+    assert run_claude("x", tier="high").tier == "high"
+    fake_run(returncode=1, stderr="503 ALL_TARGETS_SKIPPED on combo ultra")
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x", tier="ultra")
+    assert "ultra" in str(exc.value)

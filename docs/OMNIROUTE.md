@@ -5,7 +5,8 @@
 авторизация — подписочная, через Claude Code. Отсюда правило, которое стоит выучить раньше
 остальных: **сбой шлюза выглядит как сбой модели, и лечится совсем иначе.**
 
-Проверено на локальной установке `omniroute 3.8.50`; документация владельца —
+Проверено на локальной установке `omniroute 3.8.50` (`omniroute -v` на этой
+машине отвечает `3.8.50` от 2026-09-07); документация владельца —
 [release/v3.8.51](https://github.com/diegosouzapw/OmniRoute/blob/release/v3.8.51/docs/ops/PROXY_GUIDE.md).
 Номера версий здесь не переписывать по памяти: `omniroute -v` скажет правду.
 
@@ -72,3 +73,57 @@
 - **Не чинить недоверенный воркспейс правкой прав.** `Ignoring N permissions.allow entries: this
   workspace has not been trusted` — это про `hasTrustDialogAccepted` в `~/.claude.json` для той
   `cwd`, с которой запущен вызов (у нас — проектный режим, `cwd=tools/cv-adapter`).
+
+## Четыре тира комбо: сначала free, потом подписка
+
+Цель — выпить досуха ВСЕ free-источники, а платное качество разложить по четырём
+тирам. Каждый тир — это комбо на стороне OmniRoute (Dashboard → Routing, или
+`omniroute combo create/list`, маппинги — `/api/model-combo-mappings`): внутри
+каждого комбо free-таргеты идут первыми, платная подписка — последней
+(FREE_TIERS + AUTO-COMBO). Проверено локально 2026-09-07: `omniroute combo list`
+показывает `sub-first`, `free-first`, `sub-first-opus`, `sonnet-wide`,
+`static-best-coding`; `omniroute simulate --combo free-first "<prompt>"` и
+`omniroute run claude --dry-run --json` отрабатывают без траты квоты.
+
+| Тир | Класс | Примеры членства | Бенчмарк-источник |
+|---|---|---|---|
+| ULTRA | frontier | fable-5.1-class, GPT-6 Astra-class | OpenRouter session-cost, BenchLM arena Elo, LiveBench cost/task, Artificial Analysis |
+| HIGH | opus | GPT-5.6 Sol-class, Gemini 3.8 Flash-class | те же четыре |
+| MIDDLE | sonnet | GPT-5.6 Terra-class, Muse Spark 1.2-class, Grok 4.6-class, Claude Opus 4.7-class | те же четыре |
+| LOW | bulk-cheap | DeepSeek V4 Flash-class, inclusionai-ling-3.0-flash-class | OpenRouter session-cost, LiveBench cost/task |
+
+Состав тиров — данные конфига, а не константы кода: пересмотр — это правка
+комбо в OmniRoute + этой таблицы с новой датой ревью, без релиза библиотеки.
+Источники состава:
+[OpenRouter rankings (session-cost)](https://openrouter.ai/rankings#session-cost),
+[BenchLM (arena Elo)](https://benchlm.ai/?status=Current&sort=arenaElo),
+[LiveBench (cost/task)](https://livebench.ai/#/?sort=cpst&dir=desc),
+[Artificial Analysis](https://artificialanalysis.ai/leaderboards/models).
+
+В коде тир выбирается параметром `tier=` (`run_claude`, `stream_claude`,
+`arun_claude`): он превращается в gateway-флаг `--profile <тир>` ДО `--` и
+никогда — в `--model combo/<имя>`, потому что Claude Code отбрасывает
+незнакомый id локально (`claude-code:unrecognized_model`), и запрос до шлюза не
+доходит. `--model` остаётся `haiku`/`sonnet`/`opus`. `ClaudeResult.tier`
+возвращает запрошенный тир, а gateway-ошибки называют attempted tier/combo —
+видно, какой тир потрачен. `dry_run_plan()` показывает план
+(`run claude --dry-run --json`) без запуска: только команда и ИМЕНА env-ключей,
+значений секретов там нет и быть не должно.
+
+## Preflight из кода (без квоты)
+
+```python
+from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
+
+ok, detail = health()          # omniroute health
+ok, detail = doctor()          # omniroute doctor
+ok, detail = quota_status()    # omniroute quota
+ok, detail = simulate("hi", combo="free-first")  # ни одного upstream-вызова
+plan = dry_run_plan()          # {"command", "args", "env_keys"} — без запуска
+```
+
+Все хелперы возвращают `(bool, str)` и никогда не бросают (кроме `dry_run_plan`,
+который бросает `ClaudeCliError` — тоже `RuntimeError` — если сломан сам план):
+нет бинарника, таймаут, `OSError` — это `(False, <чистая причина>)`. Матрица
+use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.preflight.MATRIX`
+(норматив), этот файл — человеческая версия.

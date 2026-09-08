@@ -22,6 +22,19 @@ from .parsing import (
     parse_stream,
     strip_fences,
 )
+from .preflight import (
+    BENCHMARKS,
+    CONSTRAINTS,
+    GUIDES,
+    MATRIX,
+    QUOTA_FREE_SUBCOMMANDS,
+    TIERS,
+    doctor,
+    dry_run_plan,
+    health,
+    quota_status,
+    simulate,
+)
 from .runner import (
     MODELS,
     ClaudeCliProvider,
@@ -36,7 +49,13 @@ from .runner import (
 )
 
 __all__ = [
+    "BENCHMARKS",
+    "CONSTRAINTS",
+    "GUIDES",
+    "MATRIX",
     "MODELS",
+    "QUOTA_FREE_SUBCOMMANDS",
+    "TIERS",
     "CacheStore",
     "ClaudeCliError",
     "ClaudeCliProvider",
@@ -51,15 +70,20 @@ __all__ = [
     "cache_key",
     "cached_run",
     "claude_available",
+    "doctor",
+    "dry_run_plan",
     "extract_json",
     "extract_json_or_none",
+    "health",
     "normalize_prompt",
     "pack_batches",
     "parse_envelope",
     "parse_stream",
     "ping",
+    "quota_status",
     "run_chunks",
     "run_claude",
+    "simulate",
     "stream_claude",
     "strip_fences",
 ]
