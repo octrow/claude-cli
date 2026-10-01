@@ -778,16 +778,3 @@ async def test_arun_claude_timeout_kills_the_grandchild_too(monkeypatch, tmp_pat
     with pytest.raises(ClaudeCliError, match="timed out after 1s"):
         await arun_claude("p", timeout=1)
     _assert_gone(pidfile)
-
-
-def test_build_args_direct_skips_omniroute():
-    args = runner_mod.build_args(model="haiku", tools="Read", allowed_tools="Read(//x.png)",
-                             mcp_config="m.json", direct=True)
-    assert args[:2] == ["claude", "-p"] and "omniroute" not in args
-    assert args[args.index("--allowed-tools") + 1] == "Read(//x.png)"
-
-
-def test_build_args_direct_rejects_gateway_flags():
-    import pytest
-    with pytest.raises(ValueError):
-        runner_mod.build_args(mcp_config="m.json", direct=True, tier="low")

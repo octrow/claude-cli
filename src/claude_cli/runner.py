@@ -162,7 +162,6 @@ def build_args(
     tools: str = "",
     mcp_config: str,
     allowed_tools: str | None = None,
-    direct: bool = False,
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
@@ -196,11 +195,7 @@ def build_args(
     resolved_profile = profile or tier
     if resolved_profile:
         gateway += ["--profile", resolved_profile]
-    if direct and gateway:
-        raise ValueError("direct=True bypasses OmniRoute; tier/profile/remote/... need the gateway")
-    # direct: plain `claude` on the local subscription — the fallback when the gateway hangs
-    args = ["claude", "-p", "--model", model] if direct else \
-        ["omniroute", "run", *gateway, "claude", "--", "-p", "--model", model]
+    args = ["omniroute", "run", *gateway, "claude", "--", "-p", "--model", model]
     if effort:
         args += ["--effort", effort]
     args += ["--output-format", output_format]
@@ -362,7 +357,6 @@ def run_claude(
     timeout: int = 300,
     tools: str = "",
     allowed_tools: str | None = None,
-    direct: bool = False,
     output_format: str = "json",
     cwd: str | Path | None = None,
     slash_commands: bool = False,
@@ -397,8 +391,7 @@ def run_claude(
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format=output_format,
-            tools=tools, allowed_tools=allowed_tools, direct=direct,
-            mcp_config=_write_empty_mcp(work),
+            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
             tier=tier, remote=remote, base_url=base_url,
@@ -425,7 +418,6 @@ def run_claude(
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
         tier=tier,
-        via_gateway=not direct,
     )
 
 
