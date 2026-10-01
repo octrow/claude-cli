@@ -65,6 +65,10 @@
   **stdout и stderr до** настоящего ответа. Их снимает `parsing.strip_omniroute_noise`; если вы
   видите их в тексте ошибки — значит настоящая причина уехала за обрезку, а не отсутствует.
 
+- Висит в `status: requesting` без ошибки, `omniroute health` = healthy — смотреть
+  `~/.omniroute/logs/application/app.log` и сеть машины (`curl -4` против обычного `curl`):
+  разбор в [INCIDENT-2026-10-02-omniroute-hang.md](INCIDENT-2026-10-02-omniroute-hang.md).
+
 ## Где искать ответ
 
 1. [Документация OmniRoute](https://github.com/diegosouzapw/OmniRoute#-documentation) — общая карта.
