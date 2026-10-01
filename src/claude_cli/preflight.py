@@ -236,11 +236,17 @@ def dry_run_plan(timeout: int = 60) -> dict:
     try:
         plan = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise ClaudeCliError(f"omniroute dry-run returned non-JSON: {(proc.stdout or '')[-200:]}") from exc
+        # Not echoed: a non-JSON plan is the human-readable one, which may print env values.
+        raise ClaudeCliError(
+            f"omniroute dry-run returned non-JSON ({len(proc.stdout or '')} chars); "
+            "run `omniroute run claude --dry-run --json` to inspect it"
+        ) from exc
     if not isinstance(plan, dict):
         raise ClaudeCliError("omniroute dry-run returned an unexpected plan shape")
     env = plan.get("env") if isinstance(plan.get("env"), dict) else {}
-    keys = env.get("changedOrAdded") or []
+    keys = env.get("changedOrAdded")
+    if not isinstance(keys, (list, tuple, dict)):  # a bare string would iterate per char
+        keys = []
     # ponytail: names only — if a future gateway ever echoes values, drop
     # anything shaped like an assignment instead of leaking it.
     env_keys = [k for k in keys if isinstance(k, str) and "=" not in k]

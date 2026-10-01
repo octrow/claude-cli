@@ -27,4 +27,18 @@ class NotLoggedInError(ClaudeCliError):
 
 
 class UsageLimitError(ClaudeCliError):
-    """The CLI hit a usage/rate/session limit — fail fast, retrying won't help."""
+    """A usage/rate/session limit was hit.
+
+    ``session_wide`` says whether the limit ends the whole run or just this call.
+    Behind an OmniRoute combo it is ``False``: the limit belongs to ONE upstream
+    (target #1 of the chain), the gateway still has other targets, and the next
+    call may well succeed — so a batch must skip this item, not abort. It is
+    ``True`` only for a direct ``claude`` call, where the limited subscription is
+    the only route there is and every further call would hit the same wall.
+
+    The caller owns the abort policy; this class only reports which case it is.
+    """
+
+    def __init__(self, message: str, *, stdout: str = "", session_wide: bool = True) -> None:
+        super().__init__(message, stdout=stdout)
+        self.session_wide = session_wide

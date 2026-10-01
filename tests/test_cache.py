@@ -156,3 +156,23 @@ def test_file_store_without_max_age_keeps_everything(tmp_path):
         conn.execute("UPDATE claude_cli_cache SET created_at = ?", (old,))
         conn.commit()
     assert store.get("k") == "answer"
+
+
+def test_cached_run_splits_key_by_routing_tier():
+    calls: list = []
+    store = DictCacheStore()
+    cached_run(_runner(text="low", calls=calls), store, "p", tier="low")
+    assert cached_run(_runner(text="ultra", calls=calls), store, "p", tier="ultra") == "ultra"
+    assert len(calls) == 2  # a different tier must never be served from another's row
+    assert cache_key("sonnet", "p") not in store.rows  # untiered key untouched
+
+
+def test_file_store_naive_timestamp_does_not_crash(tmp_path):
+    store = FileCacheStore(tmp_path / "c.db", max_age_days=1)
+    with closing(sqlite3.connect(store.path)) as conn:
+        conn.execute(
+            "INSERT INTO claude_cli_cache (key, response, created_at) VALUES (?,?,?)",
+            ("k", "v", datetime.now().replace(tzinfo=None).isoformat()),
+        )
+        conn.commit()
+    assert store.get("k") == "v"

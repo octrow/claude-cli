@@ -115,6 +115,8 @@ class FileCacheStore:
             written = datetime.fromisoformat(created_at or "")
         except ValueError:  # unparseable timestamp: treat as expired, re-ask rather than trust
             return False
+        if written.tzinfo is None:  # naive row (hand-written/legacy): assume UTC, never TypeError
+            written = written.replace(tzinfo=timezone.utc)
         age = datetime.now(timezone.utc) - written
         return age <= timedelta(days=self.max_age_days)
 
@@ -153,6 +155,10 @@ class DictCacheStore:
         self.meta[key] = meta
 
 
+#: run_claude kwargs that change which upstream answers (tier combo, provider...).
+_ROUTING_KWARGS = ("tier", "provider", "profile", "remote", "base_url", "context")
+
+
 def cached_run(
     runner,
     store: CacheStore,
@@ -176,9 +182,12 @@ def cached_run(
     default only the sha256 key touches disk and the ``prompt`` column stays NULL.
     Callers needing hit/miss visibility use ``store.get``/``store.put`` directly.
     """
+    # Routing kwargs pick a different upstream model, so they must split the key;
+    # folded into the model part only when set, so existing rows stay valid.
+    routing = ",".join(f"{k}={kwargs[k]}" for k in _ROUTING_KWARGS if kwargs.get(k))
     key = cache_key(
-        model, prompt, schema=schema, version=version, purpose=purpose,
-        tools=kwargs.get("tools", ""),
+        f"{model}|{routing}" if routing else model, prompt, schema=schema,
+        version=version, purpose=purpose, tools=kwargs.get("tools", ""),
     )
     if not refresh:
         hit = store.get(key)

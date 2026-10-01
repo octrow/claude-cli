@@ -37,10 +37,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,7 +102,32 @@ _GATEWAY_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The subset of `_GATEWAY_RE` that outranks a limit match: the gateway itself ran out of
+#: routes. Not the generic `omniroute` / 502 / 503 markers — OmniRoute prefixes relayed
+#: upstream text with its own name, so those would swallow every limit and login failure.
+_GATEWAY_EXHAUSTED_RE = re.compile(
+    r"ALL_TARGETS_SKIPPED|no targets|no provider matched|fallback exhausted"
+    r"|allowedModels|resolves to nothing|PROXY_FAST_FAIL|circuit.?breaker",
+    re.IGNORECASE,
+)
+
 _EMPTY_MCP = '{"mcpServers":{}}'
+
+
+def _kill_tree(proc: subprocess.Popen | asyncio.subprocess.Process) -> None:
+    """SIGKILL the child's whole process group (it was started with ``start_new_session``).
+
+    ``omniroute run`` spawns the real ``claude`` underneath; killing only the wrapper
+    orphans that grandchild, which keeps the pipes open (the read loop hangs until it
+    exits) and keeps spending quota. Falls back to a plain kill if the group is gone.
+    """
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass  # already exited and reaped
 
 
 @dataclass(frozen=True)
@@ -236,8 +264,14 @@ def _finish(
     output_format: str,
     elapsed_ms: int,
     tier: str | None = None,
+    via_gateway: bool = True,
 ) -> ClaudeResult:
-    """Classify a finished run: raise on failure, else return the result."""
+    """Classify a finished run: raise on failure, else return the result.
+
+    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
+    always prefixes ``omniroute run``); it decides whether a usage limit is
+    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
+    """
     env = parse_stream(stdout) if output_format == "stream-json" else {}
     result = env.get("result") if isinstance(env.get("result"), str) else None
     clean_stdout = clean_cli_text(stdout or "")
@@ -249,16 +283,32 @@ def _finish(
     # (ponytail: gate on failure, don't try to outsmart the regex).
     failed = returncode != 0 or bool(env.get("is_error"))
 
-    if failed and (limit_hit := _USAGE_LIMIT_RE.search(combined)):
-        raise UsageLimitError(
-            f"claude hit a usage/rate limit: {_matched_line(combined, limit_hit)}",
-            stdout=stdout,
-        )
+    # Gateway first, limit second — the reverse of the obvious order, and the
+    # reason is the whole point of routing through a combo: OmniRoute quotes the
+    # failing upstream's own words, so "combo 'hard': fallback exhausted (429)"
+    # matches BOTH patterns. Checking the limit first reported a gateway-level
+    # exhaustion as a personal-subscription limit and aborted a 187-item batch
+    # that a skip-and-continue would have finished. `_GATEWAY_RE`'s own docstring
+    # already says waiting fixes nothing for these; now the code agrees.
     if failed and "Not logged in" in combined:
         raise NotLoggedInError(
             "claude reports 'Not logged in' — run `claude` once interactively, "
             "complete /login, then retry.",
             stdout=stdout,
+        )
+    if failed and _GATEWAY_EXHAUSTED_RE.search(combined):
+        raise ClaudeCliError(
+            f"omniroute gateway error: {error_detail(clean_stdout, clean_stderr, result)}"
+            f"{_gateway_hint(combined, tier)}",
+            stdout=stdout,
+        )
+    if failed and (limit_hit := _USAGE_LIMIT_RE.search(combined)):
+        # Every call built by `build_args` goes through `omniroute run`, so a limit
+        # here is ONE upstream in the chain, not the end of the road.
+        raise UsageLimitError(
+            f"claude hit a usage/rate limit: {_matched_line(combined, limit_hit)}",
+            stdout=stdout,
+            session_wide=not via_gateway,
         )
     if returncode != 0:
         detail = error_detail(clean_stdout, clean_stderr, result)
@@ -401,14 +451,30 @@ def stream_claude(
         )
         proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, cwd=str(cwd) if cwd else work,
+            text=True, cwd=str(cwd) if cwd else work, start_new_session=True,
         )
+        # The per-line deadline check alone never fires on a child that prints nothing.
+        timed_out = threading.Event()
+
+        def _expire() -> None:
+            timed_out.set()
+            _kill_tree(proc)
+
+        watchdog = threading.Timer(timeout, _expire)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             stderr = _pump(proc, prompt, on_event, lines, deadline=deadline, timeout=timeout)
-        except BaseException:  # timeout, a raising callback, Ctrl-C — never leave it running
-            proc.kill()
+        except BaseException as exc:  # timeout, a raising callback, Ctrl-C — never leave it running
+            _kill_tree(proc)
             proc.wait()
+            if timed_out.is_set() and not isinstance(exc, ClaudeCliError):
+                raise ClaudeCliError(f"claude timed out after {timeout}s") from exc
             raise
+        finally:
+            watchdog.cancel()
+        if timed_out.is_set():
+            raise ClaudeCliError(f"claude timed out after {timeout}s")
     return _finish(
         proc.returncode, "".join(lines), stderr,
         output_format="stream-json",
@@ -430,8 +496,16 @@ def _pump(
 
     All three pipes exist: the caller opened the process with ``stdin/stdout/stderr=PIPE``.
     """
-    proc.stdin.write(prompt)  # type: ignore[union-attr]
-    proc.stdin.close()  # type: ignore[union-attr]
+    # Drain stderr concurrently: read after stdout, a child that fills the stderr pipe
+    # first blocks forever while we block on its stdout.
+    err: list[str] = []
+    drain = threading.Thread(target=lambda: err.append(proc.stderr.read()), daemon=True)  # type: ignore[union-attr]
+    drain.start()
+    try:
+        proc.stdin.write(prompt)  # type: ignore[union-attr]
+        proc.stdin.close()  # type: ignore[union-attr]
+    except BrokenPipeError:
+        pass  # the child exited without reading; its own output says why
     for line in proc.stdout:  # type: ignore[union-attr]
         lines.append(line)
         if time.monotonic() > deadline:
@@ -439,9 +513,9 @@ def _pump(
         event = _as_event(line)
         if event is not None:
             on_event(event)
-    stderr = proc.stderr.read()  # type: ignore[union-attr]
-    proc.wait(timeout=max(1, int(deadline - time.monotonic())))
-    return stderr
+    proc.wait()  # bounded by the caller's watchdog, which kills at the deadline
+    drain.join()
+    return "".join(err)
 
 
 def _as_event(line: str) -> dict | None:
@@ -496,15 +570,21 @@ async def arun_claude(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd) if cwd else work,
+            start_new_session=True,
         )
         try:
             out, err = await asyncio.wait_for(
                 proc.communicate(prompt.encode("utf-8")), timeout=timeout
             )
         except (TimeoutError, asyncio.TimeoutError) as exc:
-            proc.kill()
+            _kill_tree(proc)
             await proc.wait()
             raise ClaudeCliError(f"claude timed out after {timeout}s") from exc
+        except BaseException:  # task cancelled, Ctrl-C — never leave it running
+            if proc.returncode is None:
+                _kill_tree(proc)
+                await asyncio.shield(proc.wait())
+            raise
     return _finish(
         proc.returncode,
         out.decode("utf-8", "replace"),

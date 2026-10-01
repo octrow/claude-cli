@@ -135,3 +135,13 @@ def test_clean_cli_text_only_noise_yields_empty_string():
 def test_clean_cli_text_never_touches_unrelated_warnings():
     # Narrow patterns only — a real warning must survive.
     assert clean_cli_text("Warning: disk almost full") == "Warning: disk almost full"
+
+
+def test_extract_json_two_fenced_blocks_returns_first():
+    text = 'A:\n```json\n{"a": 1}\n```\nB:\n```json\n{"b": 2}\n```\ndone'
+    assert extract_json(text) == {"a": 1}
+
+
+def test_parse_envelope_tolerates_trailing_noise():
+    out = 'banner\n{"result": "ok"}\nwarning: trailing wrapper line\n'
+    assert parse_envelope(out)["result"] == "ok"

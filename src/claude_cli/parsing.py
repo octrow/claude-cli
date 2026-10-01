@@ -51,7 +51,10 @@ def extract_json(text: str) -> Any:
     text = strip_fences(text)
     fenced = _FENCED_JSON_RE.search(text)
     if fenced:
-        return json.loads(fenced.group(1))
+        try:
+            return json.loads(fenced.group(1))
+        except json.JSONDecodeError:
+            pass  # greedy match spanned two fenced blocks — fall back to the scan
     start = text.find("{")
     if start == -1:
         return json.loads(text)
@@ -141,7 +144,8 @@ def parse_envelope(stdout: str) -> dict:
     except json.JSONDecodeError as exc:
         start = stdout.find("{")
         try:
-            env = json.loads(stdout[start:]) if start != -1 else None
+            # raw_decode: tolerate trailing wrapper noise after the envelope too
+            env = json.JSONDecoder().raw_decode(stdout, start)[0] if start != -1 else None
         except json.JSONDecodeError:
             env = None
         if env is None:

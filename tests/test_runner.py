@@ -587,3 +587,165 @@ def test_tier_attribution_survives_success_and_failure(fake_run):
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("x", tier="ultra")
     assert "ultra" in str(exc.value)
+
+
+def test_gateway_exhaustion_is_not_reported_as_a_usage_limit(fake_run):
+    """A combo running out of targets must not masquerade as a session limit.
+
+    OmniRoute quotes the failing upstream verbatim, so this text matches BOTH
+    _GATEWAY_RE and _USAGE_LIMIT_RE. Before the reorder the limit branch won and
+    a batch aborted on what was really "the gateway had nothing left right now".
+    """
+    fake_run(returncode=1, stderr="[omniroute] combo 'hard': fallback exhausted, all 6 targets failed (429)")
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x")
+    assert not isinstance(exc.value, UsageLimitError)
+    assert "gateway" in str(exc.value).lower()
+
+
+def test_upstream_limit_behind_the_gateway_is_not_session_wide(fake_run):
+    """One limited upstream is not the end of the run: other targets remain."""
+    fake_run(returncode=1, stderr="You've hit your session limit · resets 6:50am")
+    with pytest.raises(UsageLimitError) as exc:
+        run_claude("x")
+    assert exc.value.session_wide is False
+
+
+def test_all_targets_skipped_still_reads_as_a_gateway_error(fake_run):
+    """Exhaustion outranks a limit: this text matches BOTH patterns, gateway must win."""
+    stderr = "503 ALL_TARGETS_SKIPPED: upstream 429 rate limit"
+    assert runner_mod._USAGE_LIMIT_RE.search(stderr)  # the input really is ambiguous
+    fake_run(returncode=1, stderr=stderr)
+    with pytest.raises(ClaudeCliError, match="omniroute gateway error") as exc:
+        run_claude("x")
+    assert not isinstance(exc.value, UsageLimitError)
+
+
+def test_login_failure_mentioning_omniroute_is_still_not_logged_in(fake_run):
+    """The gateway-first check must not swallow a login failure the wrapper relays."""
+    fake_run(returncode=1, stderr="[omniroute] claude exited: Not logged in · Please run /login")
+    with pytest.raises(NotLoggedInError):
+        run_claude("x")
+
+
+def test_upstream_limit_relayed_by_omniroute_is_still_a_usage_limit(fake_run):
+    """A bare `omniroute` / 503 marker is not exhaustion: the limit must stay typed."""
+    fake_run(returncode=1, stderr="[omniroute] upstream 429: You've hit your session limit")
+    with pytest.raises(UsageLimitError) as exc:
+        run_claude("x")
+    assert exc.value.session_wide is False
+
+
+def _stream_child(monkeypatch, code: str) -> None:
+    """Point stream_claude at a real python child instead of omniroute."""
+    import sys
+
+    monkeypatch.setattr(runner_mod, "build_args", lambda **_kw: [sys.executable, "-c", code])
+
+
+def test_stream_claude_times_out_on_a_silent_child(monkeypatch):
+    """The deadline must hold even when the child prints nothing at all."""
+    import time as _time
+
+    _stream_child(monkeypatch, "import time; time.sleep(30)")
+    started = _time.monotonic()
+    with pytest.raises(ClaudeCliError, match="timed out after 1s"):
+        stream_claude("p", lambda _e: None, timeout=1)
+    assert _time.monotonic() - started < 10
+
+
+def test_stream_claude_survives_a_stderr_flood(monkeypatch):
+    """A child filling the stderr pipe before finishing stdout must not deadlock."""
+    line = json.dumps({"type": "result", "result": "ok"})
+    _stream_child(
+        monkeypatch,
+        f"import sys; sys.stderr.write('w' * 500_000); sys.stderr.flush(); print({line!r})",
+    )
+    assert stream_claude("p", lambda _e: None, timeout=5).text == "ok"
+
+
+def test_stream_claude_classifies_a_child_that_exits_before_reading_stdin(monkeypatch):
+    """An early-exiting child must surface its error, not a raw BrokenPipeError."""
+    _stream_child(monkeypatch, "import sys; sys.stderr.write('Not logged in'); sys.exit(1)")
+    with pytest.raises(NotLoggedInError):
+        stream_claude("p" * 2_000_000, lambda _e: None, timeout=10)
+
+
+async def test_arun_claude_kills_the_child_when_cancelled(monkeypatch):
+    """Cancelling the awaiting task must not orphan the subprocess."""
+    import asyncio
+    import sys
+
+    monkeypatch.setattr(
+        runner_mod, "build_args",
+        lambda **_kw: [sys.executable, "-c", "import time; time.sleep(30)"],
+    )
+    spawned = []
+    real_exec = asyncio.create_subprocess_exec
+
+    async def _exec(*args, **kwargs):
+        proc = await real_exec(*args, **kwargs)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _exec)
+    task = asyncio.create_task(arun_claude("p", timeout=60))
+    while not spawned:
+        await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert spawned[0].returncode is not None  # killed and reaped
+
+
+def _grandchild(pidfile) -> str:
+    """A child that spawns a long sleeper (as omniroute spawns claude) and records its pid."""
+    return (
+        "import subprocess, sys, time;"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)']);"
+        f"open({str(pidfile)!r}, 'w').write(str(g.pid));"
+        "time.sleep(30)"
+    )
+
+
+def _assert_gone(pidfile) -> None:
+    import os
+    import time as _time
+
+    pid = int(pidfile.read_text())
+    for _ in range(40):  # an orphan is reaped by init asynchronously
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                if fh.read().split(") ")[1].startswith("Z"):
+                    return
+            os.kill(pid, 0)
+        except (ProcessLookupError, FileNotFoundError):
+            return
+        _time.sleep(0.05)
+    os.kill(pid, 9)
+    raise AssertionError("grandchild survived the timeout kill")
+
+
+def test_stream_claude_timeout_kills_the_grandchild_too(monkeypatch, tmp_path):
+    """omniroute spawns claude: killing only the wrapper leaves the grandchild holding
+    the pipes, so the timeout waits for it (and it keeps spending quota)."""
+    import time as _time
+
+    pidfile = tmp_path / "gc.pid"
+    _stream_child(monkeypatch, _grandchild(pidfile))
+    started = _time.monotonic()
+    with pytest.raises(ClaudeCliError, match="timed out after 1s"):
+        stream_claude("p", lambda _e: None, timeout=1)
+    assert _time.monotonic() - started < 6
+    _assert_gone(pidfile)
+
+
+async def test_arun_claude_timeout_kills_the_grandchild_too(monkeypatch, tmp_path):
+    import sys
+
+    pidfile = tmp_path / "gc.pid"
+    code = _grandchild(pidfile)
+    monkeypatch.setattr(runner_mod, "build_args", lambda **_kw: [sys.executable, "-c", code])
+    with pytest.raises(ClaudeCliError, match="timed out after 1s"):
+        await arun_claude("p", timeout=1)
+    _assert_gone(pidfile)

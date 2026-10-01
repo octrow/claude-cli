@@ -105,3 +105,28 @@ def test_preflight_needs_no_live_gateway(monkeypatch):
     for result in (health(), doctor(), quota_status(), simulate("hi")):
         assert result[0] is False
         assert isinstance(result[1], str)
+
+
+def test_dry_run_non_json_does_not_echo_raw_output(monkeypatch):
+    """A human-readable plan may carry env VALUES; the error must not repeat them."""
+    from claude_cli.errors import ClaudeCliError
+    from claude_cli.preflight import dry_run_plan
+
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda args, **kw: FakeProc(stdout="ANTHROPIC_AUTH_TOKEN=sk-secret-123\n"),
+    )
+    with pytest.raises(ClaudeCliError) as exc:
+        dry_run_plan()
+    assert "sk-secret-123" not in str(exc.value)
+
+
+def test_dry_run_env_keys_ignore_a_non_list_shape(monkeypatch):
+    """A string `changedOrAdded` must not be split into one-letter key names."""
+    import json
+
+    from claude_cli.preflight import dry_run_plan
+
+    plan = {"command": "claude", "args": [], "env": {"changedOrAdded": "ANTHROPIC_BASE_URL"}}
+    monkeypatch.setattr(subprocess, "run", lambda args, **kw: FakeProc(stdout=json.dumps(plan)))
+    assert dry_run_plan()["env_keys"] == []

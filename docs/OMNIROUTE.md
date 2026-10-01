@@ -45,9 +45,22 @@
   keep-alive (`keepAliveTimeout: 1`, `pipelining: 0`).
 - `unsupported_country_region_territory` — географическое ограничение провайдера, не ваш код.
 - `ECONNREFUSED` — сервер OmniRoute не запущен: `omniroute serve` (порт по умолчанию `20128`).
-- `claude-code:unrecognized_model` — в `--model` уехало `combo/<имя>`. Claude Code отбрасывает
-  незнакомый id локально, запрос до шлюза не доходит. Отсюда `runner.MODELS` — только
-  `haiku`/`sonnet`/`opus`.
+- `claude-code:unrecognized_model` — в `--model` уехал не-Claude id. С `omniroute run` (он
+  выставляет `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`) это **только предупреждение**:
+  проверено 2026-09-24 на Claude Code 2.1.281 — `--model free-stack` (имя комбо) и
+  `--model cohere/command-a-03-2025` (один `provider/model`) дошли до шлюза и ответили.
+  Префикс `combo/<имя>` не нужен: комбо зовут просто по имени. `runner.MODELS` — по-прежнему
+  только алиасы, это список для выбора по умолчанию, а не граница допустимого.
+- `--provider <id>` у `omniroute run` без `--model` **не меняет маршрут** (dry-run: `model: null`).
+  Закрепить конкретную цель — это передать её целым id как модель Claude:
+  `--model codex/gpt-5.6-terra`. Так в `jobs/pipeline` пинит combo fallback.
+- Ошибка комбо называет только **последнюю** цель, которую роутер попробовал («All credentials for
+  model gemini-3.8-flash are cooling down»), а не первую. Настоящие причины по каждой цели — в
+  `omniroute logs` или прямым запросом `curl /v1/chat/completions` с `"model": "<provider/model>"`.
+  `simulate` показывает `quotaAvailable` по своим счётчикам и не видит 429 подписки и порогов
+  квоты, заданных в самом OmniRoute.
+- Claude Code сам повторяет 429/5xx до ~10 раз с backoff — это ~4 минуты на отказ мёртвого комбо.
+  `CLAUDE_CODE_MAX_RETRIES=<n>` в окружении это ограничивает (с `1` отказ за ~10 с).
 - Баннеры `Loaded env from …` и предупреждения про игнорируемые переменные `.env` печатаются в
   **stdout и stderr до** настоящего ответа. Их снимает `parsing.strip_omniroute_noise`; если вы
   видите их в тексте ошибки — значит настоящая причина уехала за обрезку, а не отсутствует.
