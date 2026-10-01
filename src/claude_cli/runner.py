@@ -161,6 +161,7 @@ def build_args(
     output_format: str = "json",
     tools: str = "",
     mcp_config: str,
+    allowed_tools: str | None = None,
     slash_commands: bool = False,
     setting_sources: str = "user",
     permission_mode: str | None = None,
@@ -204,7 +205,9 @@ def build_args(
         args += ["--include-partial-messages", "--verbose"]
     args += ["--no-session-persistence", "--tools", tools]
     if tools:
-        args += ["--allowed-tools", tools]
+        # allowed_tools narrows the allow-list, e.g. "Read(//abs/file.png)" — --tools
+        # only takes bare names, so a path-scoped rule can only live here
+        args += ["--allowed-tools", allowed_tools or tools]
     if not slash_commands:
         args += ["--disable-slash-commands"]
     if permission_mode:
@@ -353,6 +356,7 @@ def run_claude(
     effort: str | None = "medium",
     timeout: int = 300,
     tools: str = "",
+    allowed_tools: str | None = None,
     output_format: str = "json",
     cwd: str | Path | None = None,
     slash_commands: bool = False,
@@ -387,7 +391,7 @@ def run_claude(
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format=output_format,
-            tools=tools, mcp_config=_write_empty_mcp(work),
+            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
             tier=tier, remote=remote, base_url=base_url,
