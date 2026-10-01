@@ -124,7 +124,7 @@ from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
 
 health()                          # (True, ...) — omniroute health
 simulate("hi", combo="free-first")
-dry_run_plan()["env_keys"]        # plan only: command + env key *names*
+dry_run_plan()                    # (True, '{"command", "args", "env_keys"}') — key *names* only
 ```
 
 Four serving tiers (free targets first, subscription last — see

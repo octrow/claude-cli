@@ -17,7 +17,6 @@ import logging
 import shutil
 import subprocess
 
-from .errors import ClaudeCliError
 from .parsing import clean_cli_text
 
 log = logging.getLogger(__name__)
@@ -165,14 +164,14 @@ QUOTA_FREE_SUBCOMMANDS = frozenset(
 _DETAIL_CAP = 500
 
 
-def _call(args: list[str], timeout: int) -> tuple[bool, str]:
-    """Run one quota-free argv, returning (ok, cleaned detail) — never raises.
+def _launch(args: list[str], timeout: int) -> subprocess.CompletedProcess | tuple[bool, str]:
+    """Run one quota-free argv; a launch failure comes back as (False, reason).
 
     A missing binary, a timeout, or any OSError reports (False, reason) instead
     of raising, so doctor-style callers keep working on a fresh machine.
     """
     try:
-        proc = subprocess.run(
+        return subprocess.run(
             args, capture_output=True, text=True, check=False, timeout=timeout
         )
     except FileNotFoundError:
@@ -183,10 +182,21 @@ def _call(args: list[str], timeout: int) -> tuple[bool, str]:
         return False, f"omniroute {' '.join(args[1:2])} timed out after {timeout}s"
     except OSError as exc:
         return False, f"omniroute launch failed: {exc}"[:_DETAIL_CAP]
+
+
+def _failure_detail(proc: subprocess.CompletedProcess) -> str:
     combined = clean_cli_text((proc.stdout or "") + "\n" + (proc.stderr or ""))
+    return combined.strip()[-_DETAIL_CAP:] or f"exit {proc.returncode}"
+
+
+def _call(args: list[str], timeout: int) -> tuple[bool, str]:
+    """Run one quota-free argv, returning (ok, cleaned detail) — never raises."""
+    proc = _launch(args, timeout)
+    if isinstance(proc, tuple):
+        return proc
     if proc.returncode != 0:
-        detail = combined.strip()[-_DETAIL_CAP:] or f"exit {proc.returncode}"
-        return False, detail
+        return False, _failure_detail(proc)
+    combined = clean_cli_text((proc.stdout or "") + "\n" + (proc.stderr or ""))
     return True, combined.strip()[-_DETAIL_CAP:] or "ok"
 
 
@@ -214,35 +224,28 @@ def simulate(prompt: str, combo: str | None = None, timeout: int = 60) -> tuple[
     return _call(args, timeout)
 
 
-def dry_run_plan(timeout: int = 60) -> dict:
-    """Planned `run claude` command as data — no execution, no quota spent.
+def dry_run_plan(timeout: int = 60) -> tuple[bool, str]:
+    """Planned `run claude` command — no execution, no quota spent, never raises.
 
-    Returns ``{"command": ..., "args": [...], "env_keys": [...]}`` with env key
-    NAMES only: the gateway never prints secret values here, and neither do we.
-    Raises :class:`ClaudeCliError` (a ``RuntimeError``) when the plan itself fails.
+    Returns ``(True, <compact JSON>)`` where the JSON is
+    ``{"command": ..., "args": [...], "env_keys": [...]}`` with env key NAMES only
+    (``json.loads`` the detail for the data), or ``(False, <cleaned reason>)``.
     """
-    try:
-        proc = subprocess.run(
-            ["omniroute", "run", "claude", "--dry-run", "--json"],
-            capture_output=True, text=True, check=False, timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ClaudeCliError(f"omniroute dry-run timed out after {timeout}s") from exc
-    except OSError as exc:
-        raise ClaudeCliError(f"omniroute dry-run failed: {exc}") from exc
+    proc = _launch(["omniroute", "run", "claude", "--dry-run", "--json"], timeout)
+    if isinstance(proc, tuple):
+        return proc
     if proc.returncode != 0:
-        detail = clean_cli_text((proc.stderr or "") + "\n" + (proc.stdout or ""))
-        raise ClaudeCliError(f"omniroute dry-run failed: {detail.strip()[-300:]}")
+        return False, f"omniroute dry-run failed: {_failure_detail(proc)}"
     try:
         plan = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         # Not echoed: a non-JSON plan is the human-readable one, which may print env values.
-        raise ClaudeCliError(
+        return False, (
             f"omniroute dry-run returned non-JSON ({len(proc.stdout or '')} chars); "
             "run `omniroute run claude --dry-run --json` to inspect it"
-        ) from exc
+        )
     if not isinstance(plan, dict):
-        raise ClaudeCliError("omniroute dry-run returned an unexpected plan shape")
+        return False, "omniroute dry-run returned an unexpected plan shape"
     env = plan.get("env") if isinstance(plan.get("env"), dict) else {}
     keys = env.get("changedOrAdded")
     if not isinstance(keys, (list, tuple, dict)):  # a bare string would iterate per char
@@ -251,5 +254,7 @@ def dry_run_plan(timeout: int = 60) -> dict:
     # anything shaped like an assignment instead of leaking it.
     env_keys = [k for k in keys if isinstance(k, str) and "=" not in k]
     log.info("omniroute dry-run ok: command=%s env_keys=%d", plan.get("command"), len(env_keys))
-    return {"command": plan.get("command"), "args": plan.get("args") or [],
-            "env_keys": env_keys}
+    return True, json.dumps(
+        {"command": plan.get("command"), "args": plan.get("args") or [], "env_keys": env_keys},
+        ensure_ascii=False, separators=(",", ":"),
+    )

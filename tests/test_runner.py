@@ -537,9 +537,10 @@ def test_dry_run_returns_plan_without_execution(monkeypatch):
         return proc
 
     monkeypatch.setattr(subprocess, "run", _run)
-    result = dry_run_plan()
-    assert result["env_keys"] == ["ANTHROPIC_BASE_URL"]
-    assert "sk-" not in json_mod.dumps(result)
+    ok, detail = dry_run_plan()
+    assert ok is True
+    assert json_mod.loads(detail)["env_keys"] == ["ANTHROPIC_BASE_URL"]
+    assert "sk-" not in detail
     assert calls and "--dry-run" in calls[0] and "--json" in calls[0]
 
 

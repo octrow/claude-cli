@@ -132,11 +132,10 @@ ok, detail = health()          # omniroute health
 ok, detail = doctor()          # omniroute doctor
 ok, detail = quota_status()    # omniroute quota
 ok, detail = simulate("hi", combo="free-first")  # ни одного upstream-вызова
-plan = dry_run_plan()          # {"command", "args", "env_keys"} — без запуска
+ok, plan = dry_run_plan()      # plan — JSON {"command", "args", "env_keys"}, без запуска
 ```
 
-Все хелперы возвращают `(bool, str)` и никогда не бросают (кроме `dry_run_plan`,
-который бросает `ClaudeCliError` — тоже `RuntimeError` — если сломан сам план):
-нет бинарника, таймаут, `OSError` — это `(False, <чистая причина>)`. Матрица
+Все хелперы, включая `dry_run_plan`, возвращают `(bool, str)` и никогда не бросают:
+нет бинарника, таймаут, `OSError`, сломанный план — это `(False, <чистая причина>)`. Матрица
 use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.preflight.MATRIX`
 (норматив), этот файл — человеческая версия.
