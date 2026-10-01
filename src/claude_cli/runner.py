@@ -393,15 +393,24 @@ def run_claude(
             tier=tier, remote=remote, base_url=base_url,
             context=context, provider=provider, profile=profile,
         )
+        # Popen, not subprocess.run: run's timeout kills only the direct child, which
+        # orphans the real `claude` under `omniroute run` (see _kill_tree).
+        proc = subprocess.Popen(
+            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=str(cwd) if cwd else work, text=True, start_new_session=True,
+        )
         try:
-            proc = subprocess.run(
-                args, input=prompt, cwd=str(cwd) if cwd else work,
-                capture_output=True, text=True, check=False, timeout=timeout,
-            )
+            stdout, stderr = proc.communicate(prompt, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
+            _kill_tree(proc)
+            proc.communicate()
             raise ClaudeCliError(f"claude timed out after {timeout}s") from exc
+        except BaseException:
+            _kill_tree(proc)
+            proc.wait()
+            raise
     return _finish(
-        proc.returncode, proc.stdout or "", proc.stderr or "",
+        proc.returncode, stdout or "", stderr or "",
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
         tier=tier,

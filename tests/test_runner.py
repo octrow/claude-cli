@@ -56,11 +56,17 @@ def fake_run(monkeypatch):
     calls: list[dict] = []
 
     def install(returncode=0, stdout=ENVELOPE, stderr=""):
-        def _run(args, **kwargs):
-            calls.append({"args": args, **kwargs})
-            return FakeProc(returncode, stdout, stderr)
+        class _Popen(FakeProc):
+            def __init__(self, args, **kwargs):
+                super().__init__(returncode, stdout, stderr)
+                self.call = {"args": args, **kwargs}
+                calls.append(self.call)
 
-        monkeypatch.setattr(subprocess, "run", _run)
+            def communicate(self, input=None, timeout=None):
+                self.call["input"] = input
+                return self.stdout, self.stderr
+
+        monkeypatch.setattr(subprocess, "Popen", _Popen)
         return calls
 
     return install
@@ -297,12 +303,34 @@ def test_stream_without_result_event(fake_run):
 
 
 def test_timeout(monkeypatch):
-    def _run(args, **kwargs):
-        raise subprocess.TimeoutExpired(args, 5)
+    killed = []
 
-    monkeypatch.setattr(subprocess, "run", _run)
+    class _Popen(FakeProc):
+        def __init__(self, args, **kwargs):
+            super().__init__()
+            self.args = args
+
+        def communicate(self, input=None, timeout=None):
+            if timeout is not None:
+                raise subprocess.TimeoutExpired(self.args, timeout)
+            return "", ""
+
+    monkeypatch.setattr(subprocess, "Popen", _Popen)
+    monkeypatch.setattr(runner_mod, "_kill_tree", killed.append)
     with pytest.raises(ClaudeCliError, match="timed out"):
         run_claude("x", timeout=5)
+    assert len(killed) == 1
+
+
+def test_run_claude_timeout_kills_the_grandchild_too(monkeypatch, tmp_path):
+    import sys
+
+    pidfile = tmp_path / "gc.pid"
+    code = _grandchild(pidfile)
+    monkeypatch.setattr(runner_mod, "build_args", lambda **_kw: [sys.executable, "-c", code])
+    with pytest.raises(ClaudeCliError, match="timed out after 1s"):
+        run_claude("p", timeout=1)
+    _assert_gone(pidfile)
 
 
 def test_provider_satisfies_protocol():
