@@ -127,12 +127,13 @@ simulate("hi", combo="free-first")
 dry_run_plan()                    # (True, '{"command", "args", "env_keys"}') — key *names* only
 ```
 
-Four serving tiers (free targets first, subscription last — see
-`docs/OMNIROUTE.md` for the combo table):
+The combo is picked by `--model` only: `haiku`/`sonnet`/`opus` go through the
+gateway's model→combo mappings, or pass a combo name directly. `tier=`/`profile=`
+only set `CLAUDE_CONFIG_DIR` (a separate Claude Code settings dir), not the route —
+see `docs/OMNIROUTE.md`, "Как выбирается комбо":
 
 ```python
-res = run_claude(prompt, model="sonnet", tier="high")  # ultra/high/middle/low
-res.tier  # "high" — echoed for spend attribution
+res = run_claude(prompt, model="sub-first")  # explicit combo
 ```
 
 Before classification and truncation, stderr/stdout are cleaned of ANSI codes

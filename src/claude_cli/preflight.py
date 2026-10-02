@@ -119,9 +119,10 @@ BENCHMARKS = (
     "artificial-analysis",
 )
 
-#: Four serving tiers. Each combo lists free targets first and paid subscription
-#: last (FREE_TIERS + AUTO-COMBO grounding). Membership examples are operator
-#: config data — re-tiering edits OmniRoute combo config + docs, never this file.
+#: Four serving tiers — a planned scheme, not live routing. The gateway has no
+#: ``ultra``/``high``/``middle``/``low`` combos (``omniroute combo list``), and
+#: ``tier=`` only becomes ``--profile`` (an isolated CLAUDE_CONFIG_DIR), so the
+#: ``combo`` values below name nothing. The real route is picked by ``--model``.
 TIERS = {
     "ultra": {
         "class": "frontier",

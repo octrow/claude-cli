@@ -155,7 +155,7 @@ class DictCacheStore:
         self.meta[key] = meta
 
 
-#: run_claude kwargs that change which upstream answers (tier combo, provider...).
+#: run_claude kwargs that change which upstream answers (profile/config dir, provider, remote...).
 _ROUTING_KWARGS = ("tier", "provider", "profile", "remote", "base_url", "context")
 
 

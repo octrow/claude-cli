@@ -5,6 +5,8 @@
 free-first` упирается в 140 с даже на «say ok». Прямой `claude -p` без шлюза при этом
 отвечает за 2–7 с. `omniroute health` сообщает `healthy`, по нему проблему не видно.
 
+См. также: [`INCIDENT-2026-10-02-omniroute-hang.md`](INCIDENT-2026-10-02-omniroute-hang.md), [`2026-10-02-combo-hangs.md`](2026-10-02-combo-hangs.md).
+
 Данные: `~/.omniroute/call_logs/*/*.json` (последние 10 000 вызовов, 2026-09-27 … 2026-10-01
 22:43 UTC), `/api/combos`, `/api/model-combo-mappings`, `/api/providers` (Bearer
 `OMNIROUTE_API_KEY` из `~/.omniroute/.env`).
@@ -73,7 +75,7 @@ claude → re-auth). Ретраи с нашей стороны тут не по�
 - Каждый запрос верхнего уровня ещё и раскладывается на несколько ступеней. Получается
   около 2 200 обращений к провайдерам за 2 часа.
 - Источник: параллельные субагентные прогоны той ночью (buy-smarter и другие проекты), плюс
-  осиротевшие `claude -p`. В 02:55 их было около 10, возраст 45 минут, родитель `systemd --user`.
+  осиротевшие `claude -p`. В 02:55 по местному времени (21:55 UTC) их было около 10, возраст 45 минут, родитель `systemd --user`.
 - Этот поток держит gemini в 429 и «cooling down». Новые вызовы снова попадают на
   тормозящие ступени. Петля самоподдерживается, пока нагрузка не спадёт.
 
@@ -180,8 +182,8 @@ echo "reply with ok" | NO_COLOR=1 timeout 60 omniroute run claude -- \
 - **Модель по умолчанию в finance-insights никогда не доходит до подписки.**
   `finance_insights.provider.ClaudeCliProvider.DEFAULT_MODEL = "claude-sonnet-5-5"`, и через
   маппинг из п.2 этот id всегда уходит в `free-stack`. Даже после re-auth подписки (п.1) его
-  не обслужит Claude, пока не поправлен маппинг. Другой путь — передавать комбо явно:
-  `tier=`/`profile=` в `run_claude` или имя комбо в `--model`.
+  не обслужит Claude, пока не поправлен маппинг. Другой путь — передавать имя комбо прямо
+  в `--model` (`model="sub-first"`). `tier=`/`profile=` комбо не выбирают, см. «Дополнение 2».
 - **Тесты ходили в живой шлюз.** Когда `run_claude` перешёл на `subprocess.Popen`
   (`c31bde2`), моки `subprocess.run` в тестах finance-insights перестали его перехватывать.
   10 тестов слали реальные запросы и висели по 120 с, то есть сами добавляли нагрузку из
@@ -189,3 +191,68 @@ echo "reply with ok" | NO_COLOR=1 timeout 60 omniroute run claude -- \
   `omniroute`/`claude` уходит в мок `run`, а без мока тест сразу падает. Тем же стоит
   закрыть тесты остальных потребителей `claude-cli`.
 
+## Дополнение 2: из tiktok-lazy-follower (2026-10-01 ~23:00 UTC)
+
+Причины те же, что выше. Ниже то, чего в этом разборе и в `INCIDENT-2026-10-02-omniroute-hang.md`
+ещё нет. Первая находка опровергла прежний совет из «Последствий» выше (передавать комбо через
+`tier=`/`profile=`), совет там уже исправлен.
+
+### `tier=` / `profile=` не выбирают комбо
+
+`build_args` превращает `tier`/`profile` в `omniroute run --profile <имя>`. У цели `claude` в
+OmniRoute 3.8.50 этот флаг означает только `CLAUDE_CONFIG_DIR=~/.claude/profiles/<имя>`
+(`bin/cli/commands/run.mjs:127`, `launch.mjs:190`), то есть отдельную директорию настроек
+Claude Code. Маршрут он не трогает:
+
+```bash
+omniroute run --profile high claude --dry-run --json -- -p --model sonnet
+# env.changedOrAdded: CLAUDE_CONFIG_DIR, ANTHROPIC_BASE_URL, … ; "model": null
+```
+
+- Комбо с именами `ultra`/`high`/`middle`/`low` в шлюзе нет. `omniroute combo list` выдаёт
+  `sub-first`, `free-first`, `sub-first-opus`, `sonnet-wide`, `free-stack`, `hard`.
+- Таблица `tier_config` в `storage.sqlite` описывает ценовые уровни провайдеров (free/cheap),
+  а не комбо.
+- Раздел «Четыре тира комбо» в `OMNIROUTE.md` описывал несуществующий механизм (исправлен в «Как выбирается комбо»).
+  `tier="high"` создаёт пустой `~/.claude/profiles/high`, а запрос уходит по тем же `model_combo_mappings`.
+- Комбо выбирается только моделью: имя комбо прямо в Claude-side `--model`. Проверено:
+  `--model sub-first` дошёл до шлюза (`📥 POST /v1/messages | sub-first`) и ответил.
+- `profile="free-tier"` в chat-watch отвечал быстрее не из-за маршрута. Пустой
+  `CLAUDE_CONFIG_DIR` не грузит `~/.claude` (CLAUDE.md, rules, хуки, плагины), поэтому запрос
+  легче, а маршрут тот же.
+- Следствие: исправление `tier` в библиотеке — это `--model <combo>` после `--`.
+  `--profile` стоит оставить только для изоляции настроек. Пока это не сделано, `tier=` у
+  потребителей (в tlf это `digest.tier`) ничего не меняет.
+
+### Живой замер на «ответь ok» (`CLAUDE_CODE_MAX_RETRIES=1`, ~22:59 UTC, уже после прогрева DNS)
+
+| вызов | итог | TTFT | путь по `app.log` |
+|---|---|---|---|
+| `--model sonnet` (`free-stack`) | ok | 27 с | gemini-3.8-flash: 429 за 5 с (`cooling down 25s`), затем `kilocode/stepfun/step-3.7-flash:free` 200 за 21 с |
+| `--model sub-first` | ok | 77 с | claude: 401 skip, antigravity: 429 через 47 с, повтор Claude Code, antigravity: 429 через 23 с, затем gemini-3-flash-preview 200 за 6 с |
+
+Даже в спокойный момент голова `sub-first` после мёртвой подписки стоит до 47 с на один отказ:
+antigravity отдаёт 429 медленно.
+
+### Мелочи, найденные по пути
+
+- **Claude Code сам повторяет до ~10 раз, а `run_claude` ему не мешает.** Окружение процесса не
+  трогается, `CLAUDE_CODE_MAX_RETRIES` не выставлен. В шторм 2271 запись `call_logs`
+  (2026-10-01 21–23 UTC) пришлась на 215 уникальных последних сообщений: медиана 5 повторов,
+  максимум 95. Во время самого сбоя ограничение повторов ответа не вернёт (см. INCIDENT), но
+  умножение нагрузки и время отказа оно режет. За fallback и так отвечает комбо шлюза.
+- **Фильтр совместимости отсекает до 6 из 9 целей.** Claude Code шлёт `max_tokens`
+  64000/128000 с `thinking` и `output_config`. `filterTargetsByRequestCompatibility` проверяет
+  tools, vision, structured output, context window и output tokens. В `app.log`
+  `kept 5/9` — 4789 раз, `kept 3/9` — 402 раза. Гипотеза, не проверена: виноваты
+  `max_tokens`/`output_config`. Проверить можно через `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.
+- **Профиль `~/.claude/profiles/Reply with the single word: ok`** (создан 2026-09-22). Промпт
+  стоял до `--`, и `omniroute run` прочитал его как собственный `-p` (алиас `--profile`).
+  `build_args` от этого защищён, ручные вызовы `omniroute run claude -p "…"` без `--` — нет.
+- **`omniroute` грузит `.env` из текущей директории.** При запуске из каталога проекта
+  выводится `Loaded env from /home/octrow/dev/tiktok-lazy-follower/.env`, и секреты проекта
+  уходят в окружение шлюза и Claude Code. `run_claude` работает в одноразовой директории, так
+  что это касается только ручных и диагностических вызовов.
+- **Подписка мертва с точностью до часа:** последний успех
+  `Model claude/claude-sonnet-5 succeeded (1735ms)` — 2026-09-23 08:15 UTC; первый
+  `authentication expired` — 2026-09-23 21:40 UTC (`app.2026-09-22_234825.log`).

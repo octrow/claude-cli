@@ -60,7 +60,9 @@
   `simulate` показывает `quotaAvailable` по своим счётчикам и не видит 429 подписки и порогов
   квоты, заданных в самом OmniRoute.
 - Claude Code сам повторяет 429/5xx до ~10 раз с backoff — это ~4 минуты на отказ мёртвого комбо.
-  `CLAUDE_CODE_MAX_RETRIES=<n>` в окружении это ограничивает (с `1` отказ за ~10 с).
+  `CLAUDE_CODE_MAX_RETRIES=<n>` в окружении это ограничивает (с `1` отказ за ~10 с). Библиотека
+  по умолчанию ставит `2` (`runner.DEFAULT_MAX_RETRIES`); значение из окружения вызывающего
+  главнее.
 - Баннеры `Loaded env from …` и предупреждения про игнорируемые переменные `.env` печатаются в
   **stdout и stderr до** настоящего ответа. Их снимает `parsing.strip_omniroute_noise`; если вы
   видите их в тексте ошибки — значит настоящая причина уехала за обрезку, а не отсутствует.
@@ -91,41 +93,38 @@
   workspace has not been trusted` — это про `hasTrustDialogAccepted` в `~/.claude.json` для той
   `cwd`, с которой запущен вызов (у нас — проектный режим, `cwd=tools/cv-adapter`).
 
-## Четыре тира комбо: сначала free, потом подписка
+## Как выбирается комбо
 
-Цель — выпить досуха ВСЕ free-источники, а платное качество разложить по четырём
-тирам. Каждый тир — это комбо на стороне OmniRoute (Dashboard → Routing, или
-`omniroute combo create/list`, маппинги — `/api/model-combo-mappings`): внутри
-каждого комбо free-таргеты идут первыми, платная подписка — последней
-(FREE_TIERS + AUTO-COMBO). Проверено локально 2026-09-07: `omniroute combo list`
-показывает `sub-first`, `free-first`, `sub-first-opus`, `sonnet-wide`,
-`static-best-coding`; `omniroute simulate --combo free-first "<prompt>"` и
-`omniroute run claude --dry-run --json` отрабатывают без траты квоты.
+Комбо выбирает только `--model`, больше ничего. Есть два способа:
 
-| Тир | Класс | Примеры членства | Бенчмарк-источник |
-|---|---|---|---|
-| ULTRA | frontier | fable-5.1-class, GPT-6 Astra-class | OpenRouter session-cost, BenchLM arena Elo, LiveBench cost/task, Artificial Analysis |
-| HIGH | opus | GPT-5.6 Sol-class, Gemini 3.8 Flash-class | те же четыре |
-| MIDDLE | sonnet | GPT-5.6 Terra-class, Muse Spark 1.2-class, Grok 4.6-class, Claude Opus 4.7-class | те же четыре |
-| LOW | bulk-cheap | DeepSeek V4 Flash-class, inclusionai-ling-3.0-flash-class | OpenRouter session-cost, LiveBench cost/task |
+- **Через маппинг.** `haiku`/`sonnet`/`opus` раскрываются в `claude-*-…`, и шлюз находит
+  комбо по `model_combo_mappings` (`/api/model-combo-mappings`). Побеждает правило с большим
+  priority. Состояние на 2026-10-02:
 
-Состав тиров — данные конфига, а не константы кода: пересмотр — это правка
-комбо в OmniRoute + этой таблицы с новой датой ревью, без релиза библиотеки.
-Источники состава:
-[OpenRouter rankings (session-cost)](https://openrouter.ai/rankings#session-cost),
-[BenchLM (arena Elo)](https://benchlm.ai/?status=Current&sort=arenaElo),
-[LiveBench (cost/task)](https://livebench.ai/#/?sort=cpst&dir=desc),
-[Artificial Analysis](https://artificialanalysis.ai/leaderboards/models).
+  | pattern | priority | combo |
+  |---|---|---|
+  | `claude-haiku-*` | 100 | `free-first` (подписка 10-й, последней ступенью) |
+  | `claude-sonnet-*` | 100 | `free-stack` (подписки нет совсем) |
+  | `claude-opus-*` | 100 | `hard` (подписка первой) |
+  | `claude-*` | 10 | `sub-first` |
 
-В коде тир выбирается параметром `tier=` (`run_claude`, `stream_claude`,
-`arun_claude`): он превращается в gateway-флаг `--profile <тир>` ДО `--` и
-никогда — в `--model combo/<имя>`, потому что Claude Code отбрасывает
-незнакомый id локально (`claude-code:unrecognized_model`), и запрос до шлюза не
-доходит. `--model` остаётся `haiku`/`sonnet`/`opus`. `ClaudeResult.tier`
-возвращает запрошенный тир, а gateway-ошибки называют attempted tier/combo —
-видно, какой тир потрачен. `dry_run_plan()` показывает план
-(`run claude --dry-run --json`) без запуска: только команда и ИМЕНА env-ключей,
-значений секретов там нет и быть не должно.
+- **Явно, по имени комбо.** Голое имя комбо в `--model` (`model="sub-first"`) доходит до
+  шлюза (`POST /v1/messages | sub-first`), это проверено 2026-10-02. Список комбо выдаёт
+  `omniroute combo list`: `sub-first`, `free-first`, `sub-first-opus`, `sonnet-wide`,
+  `free-stack`, `hard`.
+
+`tier=`/`profile=` (`run_claude`, `stream_claude`, `arun_claude`) комбо **не выбирают**. Они
+превращаются в gateway-флаг `--profile <имя>` до `--`. У цели `claude` в OmniRoute 3.8.50 этот
+флаг задаёт только `CLAUDE_CONFIG_DIR=~/.claude/profiles/<имя>` (`bin/cli/commands/run.mjs`,
+`launch.mjs`), то есть отдельную папку настроек Claude Code. Пустая папка не загружает
+`~/.claude` (CLAUDE.md, rules, хуки, плагины), и только поэтому такой вызов легче. Маршрут
+остаётся тем же. Комбо `ultra`/`high`/`middle`/`low` в шлюзе нет, поэтому `tier="high"` создаёт
+пустой `~/.claude/profiles/high`, а запрос идёт по маппингам выше. Значение
+`ClaudeResult.tier` — это просто переданная строка.
+
+`dry_run_plan()` показывает план (`run claude --dry-run --json`), ничего не запуская: только
+команду и ИМЕНА env-ключей. Значений секретов там нет и быть не должно. Разбор, где это
+выяснилось: [`OMNIROUTE-HANG-2026-10-02.md`](OMNIROUTE-HANG-2026-10-02.md), «Дополнение 2».
 
 ## Preflight из кода (без квоты)
 
