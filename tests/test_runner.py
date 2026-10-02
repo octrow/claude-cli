@@ -778,3 +778,45 @@ async def test_arun_claude_timeout_kills_the_grandchild_too(monkeypatch, tmp_pat
     with pytest.raises(ClaudeCliError, match="timed out after 1s"):
         await arun_claude("p", timeout=1)
     _assert_gone(pidfile)
+
+
+# --- CLAUDE_CODE_MAX_RETRIES / allowed_tools on every entry point ------------
+
+
+def test_run_claude_caps_claude_code_retries(fake_run, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_MAX_RETRIES", raising=False)
+    calls = fake_run()
+    run_claude("p")
+    assert calls[0]["env"]["CLAUDE_CODE_MAX_RETRIES"] == runner_mod.DEFAULT_MAX_RETRIES
+
+
+def test_caller_env_retries_win(fake_run, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_MAX_RETRIES", "5")
+    calls = fake_run()
+    run_claude("p")
+    assert calls[0]["env"]["CLAUDE_CODE_MAX_RETRIES"] == "5"
+
+
+def test_stream_claude_caps_retries_and_takes_allowed_tools(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_MAX_RETRIES", raising=False)
+    seen: list[FakePopen] = []
+
+    class _Spy(FakePopen):
+        def __init__(self, args, **kwargs):
+            super().__init__(args, **kwargs)
+            seen.append(self)
+
+    monkeypatch.setattr(subprocess, "Popen", _Spy)
+    stream_claude("p", lambda _e: None, tools="Read", allowed_tools="Read(//a.png)")
+    args = seen[0].args
+    assert args[args.index("--allowed-tools") + 1] == "Read(//a.png)"
+    assert seen[0].kwargs["env"]["CLAUDE_CODE_MAX_RETRIES"] == runner_mod.DEFAULT_MAX_RETRIES
+
+
+async def test_arun_claude_caps_retries_and_takes_allowed_tools(fake_async, monkeypatch):
+    monkeypatch.delenv("CLAUDE_CODE_MAX_RETRIES", raising=False)
+    calls = fake_async()
+    await arun_claude("x", tools="Read", allowed_tools="Read(//a.png)")
+    args = calls[0]["args"]
+    assert args[args.index("--allowed-tools") + 1] == "Read(//a.png)"
+    assert calls[0]["env"]["CLAUDE_CODE_MAX_RETRIES"] == runner_mod.DEFAULT_MAX_RETRIES

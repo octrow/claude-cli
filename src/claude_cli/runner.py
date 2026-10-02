@@ -60,21 +60,21 @@ log = logging.getLogger(__name__)
 #:
 #: Claude Code expands these to ``claude-haiku-*`` / ``claude-sonnet-*`` /
 #: ``claude-opus-*``, and OmniRoute's model→combo glob mappings turn that into a
-#: routing tier (dashboard: Settings → Routing, or ``/api/model-combo-mappings``):
+#: combo (dashboard: Settings → Routing, or ``/api/model-combo-mappings``):
 #:
-#: * ``opus``   → combo ``hard``       — subscriptions only: Claude Opus 5, then
-#:   ChatGPT (gpt-5.6-terra) and Grok 4.6, Claude Sonnet 5, metered GLM-5.3 last.
-#: * ``sonnet`` → combo ``free-stack`` — free/plan-included ladder led by
-#:   muse-spark-1.2-contributor-free; every target verified to emit tool_calls.
-#: * ``haiku``  → combo ``free-first``  — the older free ladder (several targets are
-#:   currently quota-exhausted; see OmniRoute _artifacts/MODEL-STATUS.md).
+#: * ``opus``   → combo ``hard``       — Claude subscription first (opus-5, sonnet-5),
+#:   then codex, antigravity/agy, gemini and grok-cli.
+#: * ``sonnet`` → combo ``free-stack`` — free ladder led by gemini-3.8-flash and
+#:   kilocode free models; no Claude subscription target at all.
+#: * ``haiku``  → combo ``free-first``  — the older free ladder, subscription last.
 #:
 #: So ``sonnet`` is now the "bulk work, spare the $20 plan" lever: it costs nothing
 #: and does NOT touch the Claude subscription. ``opus`` is the one that spends it —
 #: and the one where prompt caching actually pays off (``hard`` runs with
 #: context_cache_protection on, so the combo is pinned per conversation).
-#: Never send ``combo/<name>`` as the model: Claude Code rejects an unrecognized
-#: model id locally (``claude-code:unrecognized_model``) before the request leaves.
+#: To pick a combo explicitly, pass its bare name as the model (``model="sub-first"``):
+#: it reaches the gateway as-is. Never send ``combo/<name>``: Claude Code rejects
+#: that id locally (``claude-code:unrecognized_model``) before the request leaves.
 MODELS = ("haiku", "sonnet", "opus")
 
 #: Narrow on purpose: a bare "limit" would false-positive on batch-local errors
@@ -144,9 +144,20 @@ class ClaudeResult:
     duration_ms: int | None = None
     raw: dict = field(default_factory=dict)
     stdout: str = ""
-    #: Requested serving tier (ultra/high/middle/low), echoed from the call so
-    #: free-vs-paid spend stays diagnosable. None when the caller picked no tier.
+    #: The ``tier`` the caller passed, echoed verbatim. It labels the call only: the
+    #: route was chosen by ``--model``, not by the tier. None when no tier was given.
     tier: str | None = None
+
+
+#: Claude Code retries 5xx/dropped requests up to ~10 times on its own; through a combo
+#: each retry re-walks every target, so one wedged call multiplies gateway load.
+#: Fallback across targets is the combo's job. A caller's own env value wins.
+DEFAULT_MAX_RETRIES = "2"
+
+
+def _child_env() -> dict[str, str]:
+    """The child's environment: ours, with Claude Code's retry count capped by default."""
+    return {"CLAUDE_CODE_MAX_RETRIES": DEFAULT_MAX_RETRIES, **os.environ}
 
 
 def claude_available() -> bool:
@@ -174,12 +185,14 @@ def build_args(
 ) -> list[str]:
     """Build argv for one Claude call through OmniRoute. Never includes ``--bare``.
 
-    ``tier`` (ultra/high/middle/low) selects the OmniRoute-side combo/profile of
-    that name via the gateway-level ``--profile`` flag placed before ``--``: the
-    Claude-side ``--model`` stays haiku/sonnet/opus because Claude Code rejects
-    ``combo/<name>`` locally. ``remote``/``base_url``/``context``/``provider``/
-    ``profile`` are explicit opt-ins for remote-mode and routing overrides; all
-    default to off so plain calls keep the historical argv untouched.
+    The combo is chosen by ``model`` alone: an alias goes through the gateway's
+    model→combo mappings, a bare combo name (``"sub-first"``) selects that combo.
+    ``tier`` (ultra/high/middle/low) and ``profile`` become the gateway-level
+    ``--profile`` flag before ``--``, which for the ``claude`` target only sets
+    ``CLAUDE_CONFIG_DIR=~/.claude/profiles/<name>`` (an isolated settings dir); they
+    do NOT change the route. ``remote``/``base_url``/``context``/``provider`` are
+    explicit remote-mode opt-ins; all default to off so plain calls keep the
+    historical argv untouched.
     """
     if tier is not None and tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
@@ -240,7 +253,7 @@ def _gateway_hint(combined: str, tier: str | None = None) -> str:
         f"\nThis looks like OmniRoute{scope}, not Claude. Cheapest checks first, none spend quota: "
         f"`omniroute health`, `omniroute doctor`, "
         f"`omniroute run claude --dry-run --json`, `omniroute logs`, `omniroute quota`. "
-        f"For routing add `omniroute simulate [--combo <tier>]`, `omniroute status`, "
+        f"For routing add `omniroute simulate [--combo <combo>]`, `omniroute status`, "
         f"`models`, `combo list`, `test <provider> <model>`; for spend add "
         f"`omniroute cost --group-by combo` and `omniroute usage`. "
         f"Docs: {OMNIROUTE_DOCS} — issues: {OMNIROUTE_ISSUES}"
@@ -375,10 +388,11 @@ def run_claude(
     the throwaway dir; pair it with ``slash_commands=True`` and
     ``setting_sources="user,project"`` to invoke that project's own commands.
 
-    ``tier`` selects an OmniRoute-side combo/profile (ultra/high/middle/low, free
-    targets first); the choice is echoed on ``ClaudeResult.tier`` and named in
-    gateway failure messages. ``remote``/``base_url``/``context``/``provider``/
-    ``profile`` are explicit remote-mode and routing overrides, all off by default.
+    ``model`` picks the combo (alias via mappings, or a bare combo name).
+    ``tier``/``profile`` only set an isolated ``CLAUDE_CONFIG_DIR`` (see
+    :func:`build_args`), not the route; ``tier`` is echoed on ``ClaudeResult.tier``
+    and named in gateway failure messages. ``remote``/``base_url``/``context``/
+    ``provider`` are explicit remote-mode overrides, all off by default.
 
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
@@ -402,6 +416,7 @@ def run_claude(
         proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=str(cwd) if cwd else work, text=True, start_new_session=True,
+            env=_child_env(),
         )
         try:
             stdout, stderr = proc.communicate(prompt, timeout=timeout)
@@ -429,6 +444,7 @@ def stream_claude(
     effort: str | None = "medium",
     timeout: int = 300,
     tools: str = "",
+    allowed_tools: str | None = None,
     cwd: str | Path | None = None,
     slash_commands: bool = False,
     setting_sources: str = "user",
@@ -456,7 +472,7 @@ def stream_claude(
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format="stream-json",
-            tools=tools, mcp_config=_write_empty_mcp(work),
+            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
             tier=tier, remote=remote, base_url=base_url,
@@ -465,6 +481,7 @@ def stream_claude(
         proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, cwd=str(cwd) if cwd else work, start_new_session=True,
+            env=_child_env(),
         )
         # The per-line deadline check alone never fires on a child that prints nothing.
         timed_out = threading.Event()
@@ -550,6 +567,7 @@ async def arun_claude(
     effort: str | None = "medium",
     timeout: int = 300,
     tools: str = "",
+    allowed_tools: str | None = None,
     output_format: str = "json",
     cwd: str | Path | None = None,
     slash_commands: bool = False,
@@ -571,7 +589,7 @@ async def arun_claude(
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
             model=model, effort=effort, output_format=output_format,
-            tools=tools, mcp_config=_write_empty_mcp(work),
+            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
             tier=tier, remote=remote, base_url=base_url,
@@ -584,6 +602,7 @@ async def arun_claude(
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd) if cwd else work,
             start_new_session=True,
+            env=_child_env(),
         )
         try:
             out, err = await asyncio.wait_for(
