@@ -49,6 +49,15 @@ res.raw         # the full envelope dict
 extract_json(res.text)   # {'ok': True} — tolerates ```fences``` and prose
 ```
 
+HTTP route: `run_claude`/`arun_claude` first POST tool-less calls to OmniRoute's
+`/v1/chat/completions` (key from `OMNIROUTE_API_KEY` or `~/.omniroute/.env`, URL from
+`OMNIROUTE_URL`, default `http://localhost:20128`; no key = skipped). A failure logs a
+warning, falls back to the CLI and parks HTTP for 600 s. Calls with `tools`/`allowed_tools`,
+`output_format="stream-json"`, `slash_commands` or remote overrides stay on the CLI, as does
+`stream_claude`. Opt out with `backend="cli"` (or `CLAUDE_CLI_BACKEND=cli` globally);
+`backend="api"` is HTTP only. No `temperature` is sent (it would enable OmniRoute's semantic
+cache, whose key ignores system prompt and tools).
+
 Streaming envelope (long runs, tlf/gce style):
 
 ```python

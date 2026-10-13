@@ -362,6 +362,16 @@ def _finish(
     )
 
 
+def _http_first(prompt, backend, model, timeout, tools, allowed_tools, output_format,
+                slash_commands, cwd, remote_opts) -> ClaudeResult | None:
+    """The HTTP route's answer, or None. Calls needing tools, the raw stream-json events,
+    a project dir (its CLAUDE.md), slash commands or a remote override stay on the CLI."""
+    from .http_api import try_http  # late: http_api imports ClaudeResult from here
+    cli_only = bool(tools or allowed_tools or slash_commands or cwd or any(remote_opts)
+                    or output_format == "stream-json")
+    return try_http(prompt, backend=backend, cli_only=cli_only, model=model, timeout=timeout)
+
+
 def run_claude(
     prompt: str,
     *,
@@ -381,8 +391,13 @@ def run_claude(
     context: str | None = None,
     provider: str | None = None,
     profile: str | None = None,
+    backend: str = "auto",
 ) -> ClaudeResult:
     """Run one prompt through the local CLI (blocking).
+
+    ``backend``: "auto" tries the OmniRoute HTTP API first for tool-less calls and falls
+    back to the CLI; "cli" never uses HTTP; "api" only HTTP (see :mod:`.http_api`).
+    ``CLAUDE_CLI_BACKEND`` in the env overrides it.
 
     ``cwd`` runs inside a real project (its ``CLAUDE.md`` is discovered) instead of
     the throwaway dir; pair it with ``slash_commands=True`` and
@@ -397,6 +412,10 @@ def run_claude(
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
     """
+    if (res := _http_first(prompt, backend, model, timeout, tools, allowed_tools,
+                           output_format, slash_commands, cwd,
+                           (remote, base_url, context, provider))) is not None:
+        return res
     log.info(
         "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
         model, effort, len(prompt), tools, cwd or "(temp)", tier,
@@ -579,8 +598,13 @@ async def arun_claude(
     context: str | None = None,
     provider: str | None = None,
     profile: str | None = None,
+    backend: str = "auto",
 ) -> ClaudeResult:
     """:func:`run_claude` on asyncio — same flags, same errors."""
+    if (res := await asyncio.to_thread(_http_first, prompt, backend, model, timeout, tools,
+                                       allowed_tools, output_format, slash_commands, cwd,
+                                       (remote, base_url, context, provider))) is not None:
+        return res
     log.info(
         "claude call (async): model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
         model, effort, len(prompt), tools, cwd or "(temp)", tier,
@@ -640,7 +664,8 @@ def ping(model: str = "haiku", timeout: float = 90) -> tuple[bool, str]:
     started = time.monotonic()
     try:
         run_claude(
-            "reply with the single word pong", model=model, timeout=int(timeout)
+            "reply with the single word pong", model=model, timeout=int(timeout),
+            backend="cli",
         )
     except Exception as exc:  # noqa: BLE001 - a doctor check must never raise
         return False, clean_cli_text(str(exc))[:200]

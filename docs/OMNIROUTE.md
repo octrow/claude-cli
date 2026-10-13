@@ -142,3 +142,12 @@ ok, plan = dry_run_plan()      # plan — JSON {"command", "args", "env_keys"}, 
 нет бинарника, таймаут, `OSError`, сломанный план — это `(False, <чистая причина>)`. Матрица
 use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.preflight.MATRIX`
 (норматив), этот файл — человеческая версия.
+
+## HTTP-маршрут (без запуска `claude`)
+
+Вызовы без инструментов вызовы `run_claude`/`arun_claude` сначала идут в
+`POST /v1/chat/completions` шлюза (`claude_cli.http_api`): `model` отображается в комбо так
+же, как шлюз делает для `--model` (`haiku`/`sonnet` -> `free-stack`, `opus` -> `hard`, голое
+имя комбо проходит как есть). При ошибке: warning, откат на CLI, HTTP выключен на 600 с.
+`temperature` не шлётся намеренно: иначе включается семантический кэш OmniRoute, чей ключ
+не учитывает system и tools. Отключить: `backend="cli"` или `CLAUDE_CLI_BACKEND=cli`.
