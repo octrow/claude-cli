@@ -9,7 +9,7 @@ import urllib.error
 
 import pytest
 
-from claude_cli import arun_claude, cached_run, http_api, run_claude
+from claude_cli import arun_claude, cached_run, http_api, run_claude, stream_claude
 from claude_cli import runner as runner_mod
 from claude_cli.cache import DictCacheStore
 from claude_cli.http_api import HttpLlmError, omniroute_chat
@@ -146,3 +146,30 @@ def test_cached_run_unchanged(auto, http):
     assert cached_run(run_claude, store, "p", model="haiku") == "hi"
     assert cached_run(run_claude, store, "p", model="haiku") == "hi"
     assert len(http.calls) == 1
+
+
+def test_empty_cwd_still_uses_http(auto, http, cli, tmp_path):
+    # a neutral cwd (jobs draft_stages) carries no project context: nothing to lose over HTTP
+    assert run_claude("p", cwd=tmp_path).text == "hi"
+    assert not cli
+
+
+@pytest.mark.parametrize("marker", ["CLAUDE.md", ".claude"])
+def test_project_cwd_stays_on_cli(auto, http, cli, tmp_path, marker):
+    (tmp_path / marker).mkdir() if marker == ".claude" else (tmp_path / marker).write_text("x")
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p", cwd=tmp_path)
+    assert not http.calls
+
+
+def test_stream_claude_uses_http_without_events(auto, http, cli, tmp_path):
+    events = []
+    res = stream_claude("p", events.append, model="haiku", cwd=tmp_path)
+    assert res.text == "hi" and not events and not cli
+    assert http.calls[-1][1]["model"] == "free-stack"
+
+
+def test_stream_claude_with_tools_stays_on_cli(auto, http, cli):
+    with pytest.raises(RuntimeError, match="cli reached"):
+        stream_claude("p", lambda _e: None, tools="WebSearch")
+    assert not http.calls

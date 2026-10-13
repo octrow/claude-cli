@@ -54,8 +54,9 @@ HTTP route: `run_claude`/`arun_claude` first POST tool-less calls to OmniRoute's
 `/v1/chat/completions` (key from `OMNIROUTE_API_KEY` or `~/.omniroute/.env`, URL from
 `OMNIROUTE_URL`, default `http://localhost:20128`; no key = skipped). A failure logs a
 warning, falls back to the CLI and parks HTTP for 600 s per process. Calls with
-`tools`/`allowed_tools`, `cwd`, `slash_commands`, remote overrides or
-`output_format="stream-json"` stay on the CLI, as do `stream_claude` and `ping`. Opt out with
+`tools`/`allowed_tools`, a project `cwd` (one holding `CLAUDE.md` or `.claude/`),
+`slash_commands`, remote overrides or `output_format="stream-json"` stay on the CLI, as does
+`ping`. A tool-less `stream_claude` goes over HTTP too and then emits no events. Opt out with
 `backend="cli"` (or `CLAUDE_CLI_BACKEND=cli`, which wins over the kwarg); `backend="api"` is
 HTTP only. HTTP results have `cost_usd=0.0` and `effort` is ignored. No `temperature` is
 sent (it would enable OmniRoute's semantic cache). Consumer test suites that fake the CLI

@@ -153,9 +153,13 @@ use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.prefl
 **Маршрутизация.** `POST {OMNIROUTE_URL или http://localhost:20128}/v1/chat/completions`
 (формат OpenAI, `Authorization: Bearer` из `OMNIROUTE_API_KEY` в env или из строки
 `OMNIROUTE_API_KEY` в `~/.omniroute/.env`). Нет ключа — HTTP молча пропускается. На CLI
-остаются вызовы с: `tools`/`allowed_tools`, `cwd` (подхват проектного CLAUDE.md),
+остаются вызовы с: `tools`/`allowed_tools`, `cwd` проекта (в нём есть `CLAUDE.md` или
+`.claude/`; нейтральный пустой cwd, как у jobs `draft_stages`, HTTP не мешает),
 `slash_commands`, переопределениями remote/base_url/context/provider,
-`output_format="stream-json"` (кто читает сырой поток событий CLI). `stream_claude` и `ping` (`backend="cli"`) — только CLI.
+`output_format="stream-json"` (кто читает сырой поток событий CLI). `stream_claude` тоже
+идёт по HTTP, если вызов без инструментов; тогда `on_event` не получает ни одного события
+(ответ приходит целиком, живость показывайте своим heartbeat). `ping` (`backend="cli"`) —
+только CLI.
 
 **Откат.** Сбой HTTP (`HttpLlmError`, подкласс `ClaudeCliError`) -> warning -> тот же вызов
 через CLI; HTTP после этого выключен на 600 с на процесс (все модели, любая ошибка, включая
@@ -212,6 +216,9 @@ OmniRoute протухло 2026-09-23, так что CLI-путь качеств
   5d6aa78), tlf topics (`stream-json` -> `json`, 85d4ffe), tlf digest (`stream-json` ->
   `json`; в `digests/runs/*/raw.jsonl` теперь конверт ответа: CLI JSON или тело OpenAI,
   если ответил HTTP; `meta.json` без `result`/`choices`).
+* **jobs `draft_stages`, `apply_research`, `cv_reuse` verify** (`stream_claude` без
+  инструментов) — по HTTP с 2026-10-13. Счётчик токенов по событиям потока
+  (`llm.StreamUsage`) для них пуст, учёт идёт по `raw.usage` (`normalize_usage`).
 * **Тесты потребителей:** `run_claude` находит ключ в `~/.omniroute/.env`, поэтому тесты,
   которые подменяют CLI на уровне `subprocess.Popen`, без защиты ушли бы в живой шлюз. Такие
   защиты выставляют `CLAUDE_CLI_BACKEND=cli`: conftest в jobs, tlf и finance-insights,
@@ -222,12 +229,10 @@ OmniRoute протухло 2026-09-23, так что CLI-путь качеств
 | Где | Вызов | Почему CLI | Что нужно для переезда |
 |---|---|---|---|
 | jobs `apply_gate.py` | `stream_claude`, tools `WebSearch` | веб-поиск — инструмент Claude Code | свой поиск (SearXNG/Kindly) + HTTP |
-| jobs `cv_reuse.py` verify | `stream_claude`, `_VERIFY_TOOLS` | инструменты | убрать tools из шага |
-| jobs `draft_stages.py`, `apply_research.py` | `stream_claude` (tools `""`) | `stream_claude` пока только CLI | HTTP-ветка в `stream_claude` (stream или без) |
 | chat-watch `vision.py` фолбэк | `run_claude`, tool `Read` | читает файл картинки | основной путь уже прямой HTTP с картинкой |
 | tlf/прочие `ping`, `health` | `ping` (`backend="cli"`) | проверяет сам CLI | не переводить |
 
-Прочие потребители (`run_claude`/`arun_claude` без tools) идут по HTTP.
+Прочие потребители (`run_claude`/`arun_claude`/`stream_claude` без tools) идут по HTTP.
 * **chat-watch:** собственный маршрут `api` и `_omniroute_chat` удалены (a9410de); маршруты
   теперь default -> fallback (`sub-first`), HTTP делает сам `run_claude`. Прямой HTTP остался
   только для vision (картинки) и Jev (`/v1/systemone`). repo-scout и раньше ходил напрямую.

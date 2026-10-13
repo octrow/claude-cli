@@ -368,9 +368,11 @@ def _finish(
 def _http_first(prompt, backend, model, timeout, tools, allowed_tools, output_format,
                 slash_commands, cwd, remote_opts) -> ClaudeResult | None:
     """The HTTP route's answer, or None. Calls needing tools, the raw stream-json events,
-    a project dir (its CLAUDE.md), slash commands or a remote override stay on the CLI."""
+    a project dir (CLAUDE.md / .claude), slash commands or a remote override stay on the
+    CLI. A neutral cwd (no project context) changes nothing over HTTP, so it doesn't count."""
     from .http_api import try_http  # late: http_api imports ClaudeResult from here
-    cli_only = bool(tools or allowed_tools or slash_commands or cwd or any(remote_opts)
+    project = bool(cwd) and any((Path(cwd) / m).exists() for m in ("CLAUDE.md", ".claude"))
+    cli_only = bool(tools or allowed_tools or slash_commands or project or any(remote_opts)
                     or output_format == "stream-json")
     return try_http(prompt, backend=backend, cli_only=cli_only, model=model, timeout=timeout)
 
@@ -477,13 +479,21 @@ def stream_claude(
     context: str | None = None,
     provider: str | None = None,
     profile: str | None = None,
+    backend: str = "auto",
 ) -> ClaudeResult:
     """:func:`run_claude`, but ``on_event`` sees each stream-json event as it arrives.
 
     Same flags, same errors, same :class:`ClaudeResult`. The format is forced to
     ``stream-json`` — that is the only shape the CLI emits incrementally. A long agentic
     run (tool calls, file writes) reports progress instead of looking wedged for minutes.
+
+    ``backend`` as in :func:`run_claude`: a tool-less call goes to the OmniRoute HTTP API
+    first, and then ``on_event`` sees no events at all (the answer arrives whole).
     """
+    if (res := _http_first(prompt, backend, model, timeout, tools, allowed_tools, "json",
+                           slash_commands, cwd,
+                           (remote, base_url, context, provider))) is not None:
+        return res
     log.info(
         "claude stream: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
         model, effort, len(prompt), tools, cwd or "(temp)", tier,
