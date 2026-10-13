@@ -288,7 +288,10 @@ def _finish(
     always prefixes ``omniroute run``); it decides whether a usage limit is
     session-wide. Pass False only for a hand-built direct ``claude`` invocation.
     """
-    env = parse_stream(stdout) if output_format == "stream-json" else {}
+    try:  # a failed run's envelope carries the real error text in `result`
+        env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
+    except ValueError:
+        env = {}
     result = env.get("result") if isinstance(env.get("result"), str) else None
     clean_stdout = clean_cli_text(stdout or "")
     clean_stderr = clean_cli_text(stderr or "")

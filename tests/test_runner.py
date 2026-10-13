@@ -284,6 +284,13 @@ def test_nonzero_exit(fake_run):
         run_claude("x")
 
 
+def test_nonzero_exit_json_envelope_result_surfaces(fake_run):
+    """json mode: a failed run's envelope `result` is the error text (stderr is empty)."""
+    fake_run(returncode=1, stdout=json.dumps({"type": "result", "result": "token limit reached"}))
+    with pytest.raises(ClaudeCliError, match="exited 1: token limit reached"):
+        run_claude("x")
+
+
 def test_is_error_envelope(fake_run):
     fake_run(stdout=json.dumps({"is_error": True, "result": "model refused"}))
     with pytest.raises(ClaudeCliError, match="model refused"):

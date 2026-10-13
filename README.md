@@ -58,8 +58,10 @@ warning, falls back to the CLI and parks HTTP for 600 s per process. Calls with
 `output_format="stream-json"` stay on the CLI, as do `stream_claude` and `ping`. Opt out with
 `backend="cli"` (or `CLAUDE_CLI_BACKEND=cli`, which wins over the kwarg); `backend="api"` is
 HTTP only. HTTP results have `cost_usd=0.0` and `effort` is ignored. No `temperature` is
-sent (it would enable OmniRoute's semantic cache). Details, decisions and consumer migration
-notes: [docs/OMNIROUTE.md](docs/OMNIROUTE.md#http-route-2026-10).
+sent (it would enable OmniRoute's semantic cache). Consumer test suites that fake the CLI
+must set `CLAUDE_CLI_BACKEND=cli`, or they reach the live gateway. Details, decisions,
+consumer migration notes and the list of what still runs on the CLI:
+[docs/OMNIROUTE.md](docs/OMNIROUTE.md#http-route-2026-10).
 
 Streaming envelope (long runs, tlf/gce style):
 
