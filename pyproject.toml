@@ -1,6 +1,7 @@
 [project]
 name = "claude-cli"
 version = "0.1.0"
+license = "MIT"
 description = "Hardened wrapper around the local `claude -p` CLI (subscription auth), + JSON extraction and response cache"
 requires-python = ">=3.12"
 dependencies = []  # stdlib only, on purpose
