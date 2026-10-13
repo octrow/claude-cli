@@ -219,6 +219,12 @@ OmniRoute протухло 2026-09-23, так что CLI-путь качеств
 * **jobs `draft_stages`, `apply_research`, `cv_reuse` verify** (`stream_claude` без
   инструментов) — по HTTP с 2026-10-13. Счётчик токенов по событиям потока
   (`llm.StreamUsage`) для них пуст, учёт идёт по `raw.usage` (`normalize_usage`).
+* **jobs `apply_gate.resolve_portal`** (2026-10-13): поиск делает код (SearXNG
+  `127.0.0.1:8888`, `company_site.portal_candidates`, агрегаторы отброшены, топ-8), модель по
+  HTTP только выбирает URL из списка; URL не из списка = NONE. WebSearch на CLI — откат, когда
+  SearXNG недоступен или ничего не дал. Было с 23.09: 3 найденных URL на 33 вызова, медиана
+  34 с; стало ~6 с, ~750 входных токенов. Kindly не используется: это MCP с ключом Serper,
+  SearXNG уже был в jobs.
 * **Тесты потребителей:** `run_claude` находит ключ в `~/.omniroute/.env`, поэтому тесты,
   которые подменяют CLI на уровне `subprocess.Popen`, без защиты ушли бы в живой шлюз. Такие
   защиты выставляют `CLAUDE_CLI_BACKEND=cli`: conftest в jobs, tlf и finance-insights,
@@ -228,7 +234,7 @@ OmniRoute протухло 2026-09-23, так что CLI-путь качеств
 
 | Где | Вызов | Почему CLI | Что нужно для переезда |
 |---|---|---|---|
-| jobs `apply_gate.py` | `stream_claude`, tools `WebSearch` | веб-поиск — инструмент Claude Code | свой поиск (SearXNG/Kindly) + HTTP |
+| jobs `apply_gate.py` (только откат) | `stream_claude`, tools `WebSearch` | основной путь — поиск кодом через SearXNG + один вызов по HTTP; WebSearch только если SearXNG недоступен или пуст | — |
 | chat-watch `vision.py` фолбэк | `run_claude`, tool `Read` | читает файл картинки | основной путь уже прямой HTTP с картинкой |
 | tlf/прочие `ping`, `health` | `ping` (`backend="cli"`) | проверяет сам CLI | не переводить |
 
