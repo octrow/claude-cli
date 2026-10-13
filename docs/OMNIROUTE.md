@@ -235,10 +235,10 @@ OmniRoute протухло 2026-09-23, так что CLI-путь качеств
 | Где | Вызов | Почему CLI | Что нужно для переезда |
 |---|---|---|---|
 | jobs `apply_gate.py` (только откат) | `stream_claude`, tools `WebSearch` | основной путь — поиск кодом через SearXNG + один вызов по HTTP; WebSearch только если SearXNG недоступен или пуст | — |
-| chat-watch `vision.py` фолбэк | `run_claude`, tool `Read` | читает файл картинки | основной путь уже прямой HTTP с картинкой |
 | tlf/прочие `ping`, `health` | `ping` (`backend="cli"`) | проверяет сам CLI | не переводить |
 
 Прочие потребители (`run_claude`/`arun_claude`/`stream_claude` без tools) идут по HTTP.
 * **chat-watch:** собственный маршрут `api` и `_omniroute_chat` удалены (a9410de); маршруты
   теперь default -> fallback (`sub-first`), HTTP делает сам `run_claude`. Прямой HTTP остался
-  только для vision (картинки) и Jev (`/v1/systemone`). repo-scout и раньше ходил напрямую.
+  только для vision (картинки) и Jev (`/v1/systemone`). Откат vision через CLI (Read) убран
+  2026-10-13: последняя ступень лестницы `vision_models` — комбо `free-stack` с картинкой в запросе. repo-scout и раньше ходил напрямую.
