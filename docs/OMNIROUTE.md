@@ -1,7 +1,8 @@
 # OmniRoute — как через него идёт вызов и что делать, когда он падает
 
-Каждый вызов модели в этих проектах — это `omniroute run claude -- -p …`, собранный в
-`runner.build_args`. Прямых HTTP-запросов к Anthropic нет, `ANTHROPIC_API_KEY` не используется:
+Вызов модели с инструментами (и любой откат) — это `omniroute run claude -- -p …`, собранный в
+`runner.build_args`; вызовы без инструментов с 2026-10 идут по HTTP шлюза, см.
+[HTTP route](#http-route-2026-10). Прямых HTTP-запросов к Anthropic нет, `ANTHROPIC_API_KEY` не используется:
 авторизация — подписочная, через Claude Code. Отсюда правило, которое стоит выучить раньше
 остальных: **сбой шлюза выглядит как сбой модели, и лечится совсем иначе.**
 
@@ -143,11 +144,73 @@ ok, plan = dry_run_plan()      # plan — JSON {"command", "args", "env_keys"}, 
 use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.preflight.MATRIX`
 (норматив), этот файл — человеческая версия.
 
-## HTTP-маршрут (без запуска `claude`)
+## HTTP route (2026-10)
 
-Вызовы без инструментов вызовы `run_claude`/`arun_claude` сначала идут в
-`POST /v1/chat/completions` шлюза (`claude_cli.http_api`): `model` отображается в комбо так
-же, как шлюз делает для `--model` (`haiku`/`sonnet` -> `free-stack`, `opus` -> `hard`, голое
-имя комбо проходит как есть). При ошибке: warning, откат на CLI, HTTP выключен на 600 с.
-`temperature` не шлётся намеренно: иначе включается семантический кэш OmniRoute, чей ключ
-не учитывает system и tools. Отключить: `backend="cli"` или `CLAUDE_CLI_BACKEND=cli`.
+С 2026-10 `run_claude`/`arun_claude` для вызовов без инструментов идут в HTTP API шлюза, а не
+через `omniroute run claude`; CLI остаётся откатом. Код: `claude_cli/http_api.py`,
+`runner._http_first`.
+
+**Маршрутизация.** `POST {OMNIROUTE_URL или http://localhost:20128}/v1/chat/completions`
+(формат OpenAI, `Authorization: Bearer` из `OMNIROUTE_API_KEY` в env или из строки
+`OMNIROUTE_API_KEY` в `~/.omniroute/.env`). Нет ключа — HTTP молча пропускается. На CLI
+остаются вызовы с: `tools`/`allowed_tools`, `cwd` (подхват проектного CLAUDE.md),
+`slash_commands`, переопределениями remote/base_url/context/provider,
+`output_format="stream-json"` (кто читает сырой поток CLI, например дайджест tlf пишет его
+в `digests/runs/`). `stream_claude` и `ping` (`backend="cli"`) — только CLI.
+
+**Откат.** Сбой HTTP (`HttpLlmError`, подкласс `ClaudeCliError`) -> warning -> тот же вызов
+через CLI; HTTP после этого выключен на 600 с на процесс (все модели, любая ошибка, включая
+4xx). `backend="api"` — только HTTP: ошибки летят наружу, cooldown не включается.
+
+**Отключение.** kwarg `backend="auto"|"cli"|"api"`; env `CLAUDE_CLI_BACKEND` перекрывает kwarg.
+Тесты ставят `cli` autouse-фикстурой в `tests/conftest.py`: живых вызовов шлюза в тестах нет.
+
+**Модели.** `haiku`/`sonnet` -> `free-stack`, `opus` -> `hard` (`COMBOS` в `http_api.py`);
+прочие значения (голое имя комбо, например `sub-first`) проходят как есть. Глоб-маппинг
+model -> combo на стороне шлюза действует только для CLI; по HTTP имя комбо шлётся сразу.
+
+**Результат.** `ClaudeResult(text, cost_usd=0.0, duration_ms, raw)`; `raw` — тело ответа
+OpenAI, где `usage` переписан в ключи CLI-конверта `input_tokens`/`output_tokens`, чтобы
+счётчики вроде `normalize_usage` в jobs работали без правок. `stdout` пуст, тир не
+возвращается, `effort` и прочие CLI-only параметры по HTTP игнорируются.
+
+**Зачем.** Каждый CLI-вызов поднимал Claude Code (процесс Node + его системный промпт), чтобы
+переслать один промпт в тот же шлюз. Замер 2026-10-13: «pong» по HTTP ~3 с, 83 входных
+токена. Бесплатные ступени ограничены по TPM (поэтому у tlf `digest.batch_chars 12000`), и
+оверхед системного промпта CLI тратил этот бюджет. OAuth-подключение подписки Claude в
+OmniRoute протухло 2026-09-23, так что CLI-путь качество подписки уже не давал.
+
+### Decisions
+
+* **Кэш остаётся в pylibs** (`cached_run`/`FileCacheStore`: SQLite, ключ = модель + routing
+  kwargs + промпт + purpose + version + tools; промпт по умолчанию не хранится). Он не зависит
+  от раннера: оборачивает `run_claude`, HTTP-маршрут внутри; ключи старых вызовов не
+  изменились. Маршрут (http/cli) в ключ **не входит**: HTTP-ответ обслужит позднейший
+  CLI-вызов с тем же промптом (так задумано).
+* **Семантический кэш OmniRoute отвергнут** как замена: работает только при явном
+  `temperature=0`, TTL 30–60 мин, LRU 50–100 записей (память + sqlite), ключ игнорирует
+  system/tools (риск коллизий), ключ привязан к целевому провайдеру (фолбэк комбо = промах),
+  ответы лежат в его `storage.sqlite`.
+* **`temperature` не шлётся никогда** — кэш OmniRoute остаётся выключенным, двойного кэша нет.
+  `PROMPT_CACHE_*` в OmniRoute — мёртвый код; passthrough `cache_control` Anthropic работает
+  только для клиентов Claude Code на кэширующих провайдерах, на бесплатных ступенях
+  неактуален. Если понадобится отказ по запросу: заголовок `X-OmniRoute-No-Cache: true`.
+* **`stream-json` остаётся на CLI**: вызывающие читают сырой поток.
+* **Cooldown 600 с — на процесс, не на модель**: мёртвый шлюз стоит один таймаут за окно.
+* **`cost_usd=0.0`** для HTTP-ответов (цены у шлюза нет); учёт ведите по `usage`.
+
+### Migration notes for consumers
+
+Менять код не нужно, что меняется и как отключить (`backend="cli"` или
+`CLAUDE_CLI_BACKEND=cli`):
+
+* **Переехали автоматически:** jobs (ranking/scoring через `run_claude`), dialogue-lens, finance-insights,
+  buy-smarter (`arun_claude`; его retry на `sub-first` тоже сначала идёт по HTTP; стоимость
+  HTTP-ответов теперь 0.0), get_cool_event extract (переведён `stream-json` -> `json`,
+  5d6aa78), tlf topics (`stream-json` -> `json`, 85d4ffe).
+* **Остались на CLI:** tlf digest (сохраняет сырой stream-json), jobs `apply_gate`
+  (WebSearch), cv_reuse verify (tools), jobs `draft_stages`/`apply_research`
+  (`stream_claude`), vision-фолбэк chat-watch (инструмент Read).
+* **chat-watch:** собственный маршрут `api` и `_omniroute_chat` удалены (a9410de); маршруты
+  теперь default -> fallback (`sub-first`), HTTP делает сам `run_claude`. Прямой HTTP остался
+  только для vision (картинки) и Jev (`/v1/systemone`). repo-scout и раньше ходил напрямую.
