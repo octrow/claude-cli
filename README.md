@@ -1,4 +1,8 @@
-# claude-cli
+# claudep
+
+```bash
+uv add claudep        # imported as `claude_cli`
+```
 
 One hardened wrapper around the OmniRoute gateway: tool-less calls go over its HTTP API,
 everything else (and any HTTP failure) over `omniroute run claude -- -p` (Claude Code

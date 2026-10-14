@@ -1,10 +1,16 @@
 [project]
-name = "claude-cli"
-version = "0.1.0"
+name = "claudep"
+version = "0.1.1"
 license = "MIT"
+readme = "README.md"
+authors = [{ name = "Daniil Petrov" }]
 description = "Hardened wrapper around the local `claude -p` CLI (subscription auth), + JSON extraction and response cache"
 requires-python = ">=3.12"
 dependencies = []  # stdlib only, on purpose
+
+[project.urls]
+Homepage = "https://github.com/octrow/claude-cli"
+Issues = "https://github.com/octrow/claude-cli/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
@@ -15,6 +21,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_cli"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
