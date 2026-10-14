@@ -1,5 +1,5 @@
 [project]
-name = "claudep"
+name = "claude-subprocess"
 version = "0.1.1"
 license = "MIT"
 readme = "README.md"

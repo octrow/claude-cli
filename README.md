@@ -1,7 +1,7 @@
-# claudep
+# claude-subprocess
 
 ```bash
-uv add claudep        # imported as `claude_cli`
+uv add claude-subprocess   # imported as `claude_cli`
 ```
 
 One hardened wrapper around the OmniRoute gateway: tool-less calls go over its HTTP API,
