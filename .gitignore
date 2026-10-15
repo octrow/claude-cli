@@ -8,3 +8,12 @@ graphify-out/
 # Editor/agent tool deps
 node_modules/
 dist/
+
+# Private notes and agent tooling (kept on disk, not published)
+.private/
+.env
+.env.*
+!.env.example
+.agents/
+.cursor/
+.opencode/

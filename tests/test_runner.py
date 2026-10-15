@@ -254,7 +254,7 @@ def test_nonzero_exit_strips_omniroute_noise_from_stderr(fake_run):
         [
             "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in ... is ignored, ... set it first\x1b[0m",
             "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY ...",
-            "📋 Loaded env from /home/octrow/.omniroute/.env",
+            "📋 Loaded env from /home/user/.omniroute/.env",
             "Error: the real cause",
         ]
     )
@@ -270,7 +270,7 @@ def test_nonzero_exit_strips_omniroute_noise_from_stderr(fake_run):
 
 def test_nonzero_exit_stderr_only_omniroute_warnings(fake_run):
     """Nothing left after cleanup — a meaningful fallback, not an empty tail."""
-    stderr = "📋 Loaded env from /home/octrow/.omniroute/.env\n⚠ FOO is ignored, BAR set it first"
+    stderr = "📋 Loaded env from /home/user/.omniroute/.env\n⚠ FOO is ignored, BAR set it first"
     fake_run(returncode=3, stdout="", stderr=stderr)
     with pytest.raises(
         ClaudeCliError, match=r"claude exited 3: \(stderr held only omniroute warnings\)"

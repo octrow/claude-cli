@@ -89,7 +89,7 @@ command with its `CLAUDE.md` and settings loaded, and let it write files:
 ```python
 res = stream_claude(
     "/apply data/export/interested/acme.md", on_event,
-    cwd="~/dev/cv-adapter", slash_commands=True,
+    cwd="~/projects/my-repo", slash_commands=True,
     setting_sources="user,project", permission_mode="acceptEdits",
     tools="Read,Write,Edit,Bash,WebFetch",
 )

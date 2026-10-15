@@ -113,13 +113,13 @@ def test_clean_cli_text_drops_known_omniroute_noise():
     # Real tail from tlf logs/2026-08-30-10-04-50.log (lines 843-862).
     tail = "\n".join(
         [
-            "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in /home/octrow/.nvm/.../omniroute/.env "
-            "is ignored, /home/octrow/.omniroute/.env set it first\x1b[0m",
+            "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in /home/user/.nvm/.../omniroute/.env "
+            "is ignored, /home/user/.omniroute/.env set it first\x1b[0m",
             "\x1b[33m⚠ REQUIRE_API_KEY in ... is ignored, ... set it first\x1b[0m",
             "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another "
             "auth source is set and takes precedence over your claude.ai login · "
             "Unset it to load your organization's ...",
-            "📋 Loaded env from /home/octrow/.omniroute/.env",
+            "📋 Loaded env from /home/user/.omniroute/.env",
             "Error: something actually broke",
         ]
     )
@@ -128,7 +128,7 @@ def test_clean_cli_text_drops_known_omniroute_noise():
 
 
 def test_clean_cli_text_only_noise_yields_empty_string():
-    tail = "📋 Loaded env from /home/octrow/.omniroute/.env\n⚠ FOO in x is ignored, y set it first"
+    tail = "📋 Loaded env from /home/user/.omniroute/.env\n⚠ FOO in x is ignored, y set it first"
     assert clean_cli_text(tail) == ""
 
 
