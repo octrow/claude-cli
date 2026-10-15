@@ -1,5 +1,7 @@
 <p align="center">
   <picture>
+    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-mobile-dark.svg">
+    <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-mobile-light.svg">
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-dark.svg">
     <img src="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-light.svg" width="100%" alt="claude-subprocess: call claude -p from Python on your Claude Code subscription, with the risky flags locked down. Beside the title, the real argv build_args(model='haiku') produces: omniroute run claude -- -p --model haiku --effort low --output-format json --no-session-persistence --tools '' --disable-slash-commands --setting-sources user --strict-mcp-config --mcp-config mcp-empty.json. --bare is never sent because it breaks OAuth.">
   </picture>
@@ -51,6 +53,8 @@ extract_json(res.text)   # {'ok': True}
 ## How a call is routed
 
 <picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/flow-mobile-dark.svg">
+  <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/flow-mobile-light.svg">
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/flow-dark.svg">
   <img src="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/flow-light.svg" width="100%" alt="run_claude, arun_claude and stream_claude send tool-less calls to OmniRoute's HTTP API at /v1/chat/completions. Calls with tools, a project cwd or stream-json go through omniroute run claude -- -p with a throwaway cwd and an empty MCP config. An HTTP error falls back to the CLI and parks HTTP for 600 seconds. Both paths return a ClaudeResult. NotLoggedInError and UsageLimitError fail fast and derive from ClaudeCliError(RuntimeError).">
 </picture>

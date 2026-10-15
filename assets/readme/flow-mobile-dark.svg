@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="965" viewBox="0 0 600 965" role="img" aria-labelledby="t d">
+<title id="t">claude-subprocess call routing</title>
+<desc id="d">run_claude, arun_claude and stream_claude send tool-less calls over OmniRoute's HTTP API. Calls with tools, a project cwd or stream-json, and any HTTP failure, go through omniroute run claude -- -p. Both paths return a ClaudeResult. Login and usage-limit failures raise NotLoggedInError or UsageLimitError, subclasses of ClaudeCliError.</desc>
+<rect width="600" height="965" rx="20" fill="#121517"/>
+<rect x="40" y="30" width="530" height="130" rx="14" fill="#1A1F22" stroke="#2F373B" stroke-width="2"/>
+<text x="62" y="72" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#E6E8EA" font-weight="700">run_claude()</text>
+<text x="62" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">arun_claude()</text>
+<text x="62" y="134" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">stream_claude()</text>
+<rect x="100" y="240" width="410" height="130" rx="14" fill="#16302C" stroke="#5CC6B6" stroke-width="2"/>
+<text x="122" y="282" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#E6E8EA" font-weight="700">HTTP · OmniRoute</text>
+<text x="122" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">POST /v1/chat/completions</text>
+<text x="122" y="344" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">tool-less calls only</text>
+<rect x="100" y="460" width="410" height="130" rx="14" fill="#1A1F22" stroke="#2F373B" stroke-width="2"/>
+<text x="122" y="502" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#E6E8EA" font-weight="700">omniroute run claude -- -p</text>
+<text x="122" y="534" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">throwaway cwd, empty MCP config,</text>
+<text x="122" y="564" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">--tools &quot;&quot; unless you pass tools</text>
+<rect x="40" y="660" width="530" height="130" rx="14" fill="#1A1F22" stroke="#2F373B" stroke-width="2"/>
+<text x="62" y="702" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#E6E8EA" font-weight="700">ClaudeResult</text>
+<text x="62" y="734" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">text · cost_usd</text>
+<text x="62" y="764" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#A1A9B0">duration_ms · raw</text>
+<line x1="420" y1="160" x2="420" y2="236" stroke="#5CC6B6" stroke-width="3"/>
+<path d="M414 224 L420 236 L426 224" fill="none" stroke="#5CC6B6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="436" y="206" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#5CC6B6">tool-less</text>
+<polyline points="60,160 60,525 96,525" fill="none" stroke="#A1A9B0" stroke-width="3"/>
+<path d="M84 519 L96 525 L84 531" fill="none" stroke="#A1A9B0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="76" y="194" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#A1A9B0">tools / cwd /</text>
+<text x="76" y="220" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#A1A9B0">stream-json</text>
+<line x1="305" y1="370" x2="305" y2="456" stroke="#F2A066" stroke-width="3" stroke-dasharray="8 7"/>
+<path d="M299 444 L305 456 L311 444" fill="none" stroke="#F2A066" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="321" y="406" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#F2A066">error → fallback,</text>
+<text x="321" y="432" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#F2A066">HTTP parked 600 s</text>
+<polyline points="510,305 550,305 550,656" fill="none" stroke="#5CC6B6" stroke-width="3"/>
+<path d="M544 644 L550 656 L556 644" fill="none" stroke="#5CC6B6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="305" y1="590" x2="305" y2="656" stroke="#A1A9B0" stroke-width="3"/>
+<path d="M299 644 L305 656 L311 644" fill="none" stroke="#A1A9B0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="40" y1="830" x2="570" y2="830" stroke="#2F373B" stroke-width="2"/>
+<text x="40" y="868" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#A1A9B0">fails fast:</text>
+<text x="40" y="900" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">NotLoggedInError · UsageLimitError</text>
+<text x="40" y="932" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">→ ClaudeCliError(RuntimeError)</text>
+</svg>
