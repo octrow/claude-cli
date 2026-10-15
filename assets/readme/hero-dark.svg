@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="t d">
+<title id="t">claude-subprocess</title>
+<desc id="d">Call claude -p from Python on your Claude Code subscription. Right: the real argv build_args() produces for model haiku: no tools, no slash commands, user settings only, an empty strict MCP config, and never --bare.</desc>
+<rect width="1200" height="480" rx="20" fill="#121517"/>
+<text x="60" y="82" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#5CC6B6" letter-spacing="2">PYTHON ≥3.12 · STDLIB ONLY · MIT</text>
+<text x="56" y="150" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="54" font-weight="800" fill="#E6E8EA">claude-subprocess</text>
+<text x="60" y="204" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="600" fill="#E6E8EA">Call claude -p from Python</text>
+<text x="60" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#A1A9B0">on your Claude Code subscription,</text>
+<text x="60" y="280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" fill="#A1A9B0">with the risky flags locked down.</text>
+<rect x="60" y="330" width="500" height="58" rx="12" fill="#0B0D0E"/>
+<text x="82" y="366" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">run_claude(prompt, model="haiku")</text>
+<text x="60" y="428" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#5CC6B6">→ text · cost_usd · raw envelope</text>
+<rect x="620" y="40" width="530" height="400" rx="16" fill="#1A1F22" stroke="#2F373B" stroke-width="2"/>
+<text x="644" y="76" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#A1A9B0" letter-spacing="1">ARGV · build_args(model="haiku")</text>
+<text x="644" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">omniroute run claude --</text>
+<text x="644" y="141" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">-p --model haiku --effort low</text>
+<text x="644" y="170" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--output-format json</text>
+<text x="644" y="199" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--no-session-persistence</text>
+<text x="644" y="228" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--tools ""</text>
+<text x="1126" y="228" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end" fill="#5CC6B6">← no tools</text>
+<text x="644" y="257" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--disable-slash-commands</text>
+<text x="644" y="286" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--setting-sources user</text>
+<text x="644" y="315" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--strict-mcp-config</text>
+<text x="644" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" fill="#E6E8EA">--mcp-config mcp-empty.json</text>
+<text x="1126" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end" fill="#5CC6B6">← empty</text>
+<line x1="644" y1="379" x2="1126" y2="379" stroke="#2F373B" stroke-width="2"/>
+<text x="644" y="413" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19" font-weight="700" fill="#F2A066">--bare</text>
+<line x1="644" y1="407" x2="712" y2="407" stroke="#F2A066" stroke-width="2"/>
+<text x="1126" y="413" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" text-anchor="end" fill="#F2A066">never sent: breaks OAuth</text>
+</svg>
