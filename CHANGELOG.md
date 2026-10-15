@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-15
+
+### Changed
+
+- README images get phone-width variants, so text stays readable on a 390px screen.
+- Python version classifiers in package metadata (the PyPI "python" badge showed "missing").
+
 ## [0.1.2] - 2026-10-15
 
 ### Changed

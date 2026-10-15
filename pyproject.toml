@@ -1,11 +1,17 @@
 [project]
 name = "claude-subprocess"
-version = "0.1.2"
+version = "0.1.3"
 license = "MIT"
 readme = "README.md"
 authors = [{ name = "Daniil Petrov" }]
 description = "Hardened wrapper around the local `claude -p` CLI (subscription auth), + JSON extraction and response cache"
 requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
 dependencies = []  # stdlib only, on purpose
 
 [project.urls]
