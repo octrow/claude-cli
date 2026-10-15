@@ -1,0 +1,23 @@
+name: Bug report
+description: Something in the library is broken or behaves wrongly
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The call you made, what you expected and what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or log
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: claude-subprocess, Python, OS
+    validations:
+      required: true

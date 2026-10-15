@@ -1,0 +1,11 @@
+name: Feature request
+description: A new helper, option or behavior
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you need and why
+      description: The problem first, then the solution you have in mind.
+    validations:
+      required: true
