@@ -110,9 +110,7 @@ def _is_omniroute_banner_line(line: str) -> bool:
         return True
     if " is ignored, " in line and "set it first" in line:
         return True
-    if "connectors are disabled because ANTHROPIC_API_KEY" in line:
-        return True
-    return False
+    return "connectors are disabled because ANTHROPIC_API_KEY" in line
 
 
 def strip_omniroute_noise(text: str) -> str:
