@@ -69,16 +69,12 @@ def test_parse_envelope_not_an_object():
 
 
 def test_parse_stream_picks_final_result_event():
-    stream = "\n".join(
-        [
-            '{"type":"system","subtype":"init","session_id":"s1"}',
-            "",
-            "plain text noise",
-            '{"type":"assistant","message":{}}',
-            '{"type":"result","result":"first","total_cost_usd":0.1}',
-            '{"type":"result","result":"final","total_cost_usd":0.2,"duration_ms":7}',
-        ]
-    )
+    stream = """{"type":"system","subtype":"init","session_id":"s1"}
+
+plain text noise
+{"type":"assistant","message":{}}
+{"type":"result","result":"first","total_cost_usd":0.1}
+{"type":"result","result":"final","total_cost_usd":0.2,"duration_ms":7}"""
     env = parse_stream(stream)
     assert env["result"] == "final"
     assert env["total_cost_usd"] == 0.2
