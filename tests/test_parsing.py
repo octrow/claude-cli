@@ -107,17 +107,15 @@ def test_strip_ansi_passthrough_plain_text():
 
 def test_clean_cli_text_drops_known_omniroute_noise():
     # Real tail from tlf logs/2026-08-30-10-04-50.log (lines 843-862).
-    tail = "\n".join(
-        [
-            "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in /home/user/.nvm/.../omniroute/.env "
-            "is ignored, /home/user/.omniroute/.env set it first\x1b[0m",
-            "\x1b[33m⚠ REQUIRE_API_KEY in ... is ignored, ... set it first\x1b[0m",
-            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another "
-            "auth source is set and takes precedence over your claude.ai login · "
-            "Unset it to load your organization's ...",
-            "📋 Loaded env from /home/user/.omniroute/.env",
-            "Error: something actually broke",
-        ]
+    tail = (
+        "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in /home/user/.nvm/.../omniroute/.env "
+        "is ignored, /home/user/.omniroute/.env set it first\x1b[0m\n"
+        "\x1b[33m⚠ REQUIRE_API_KEY in ... is ignored, ... set it first\x1b[0m\n"
+        "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another "
+        "auth source is set and takes precedence over your claude.ai login · "
+        "Unset it to load your organization's ...\n"
+        "📋 Loaded env from /home/user/.omniroute/.env\n"
+        "Error: something actually broke"
     )
     cleaned = clean_cli_text(tail)
     assert cleaned == "Error: something actually broke"
