@@ -99,19 +99,26 @@
 
 - **Через маппинг.** `haiku`/`sonnet`/`opus` раскрываются в `claude-*-…`, и шлюз находит
   комбо по `model_combo_mappings` (`/api/model-combo-mappings`). Побеждает правило с большим
-  priority. Состояние на 2026-10-02:
+  priority. Состояние на 2026-10-23:
 
   | pattern | priority | combo |
   |---|---|---|
-  | `claude-haiku-*` | 100 | `free-first` (подписка 10-й, последней ступенью) |
+  | `claude-haiku-*` | 100 | `free-stack` (подписки нет совсем) |
   | `claude-sonnet-*` | 100 | `free-stack` (подписки нет совсем) |
   | `claude-opus-*` | 100 | `hard` (подписка первой) |
   | `claude-*` | 10 | `sub-first` |
 
 - **Явно, по имени комбо.** Голое имя комбо в `--model` (`model="sub-first"`) доходит до
   шлюза (`POST /v1/messages | sub-first`), это проверено 2026-10-02. Список комбо выдаёт
-  `omniroute combo list`: `sub-first`, `free-first`, `sub-first-opus`, `sonnet-wide`,
-  `free-stack`, `hard`.
+  `omniroute combo list`. На 2026-10-23 это `sub-first`, `free-stack`, `hard`, `jev-smart`
+  и `persona-private` (только для persona-crm).
+
+- **Google только по ключу Gemini API.** С 2026-10-23 ни одно комбо не ходит через
+  Antigravity (`agy/…`, `antigravity/…`) и Gemini web (`gemini-web/…`, `gweb/…`), а сами
+  подключения выключены. Доступ к подписке Google из сторонней программы нарушает п.6
+  условий Antigravity. 2026-10-16 аккаунт уже получил за это флаг, а второй флаг означает
+  перманентный бан Antigravity, Gemini CLI и Code Assist. Gemini есть только как `gemini/…`,
+  это официальный API по ключу. Подробности в `~/programs/OmniRoute/_artifacts/GOOGLE-ACCOUNT-SAFETY.md`.
 
 `tier=`/`profile=` (`run_claude`, `stream_claude`, `arun_claude`) комбо **не выбирают**. Они
 превращаются в gateway-флаг `--profile <имя>` до `--`. У цели `claude` в OmniRoute 3.8.50 этот
@@ -133,7 +140,7 @@ from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
 ok, detail = health()          # omniroute health
 ok, detail = doctor()          # omniroute doctor
 ok, detail = quota_status()    # omniroute quota
-ok, detail = simulate("hi", combo="free-first")  # ни одного upstream-вызова
+ok, detail = simulate("hi", combo="free-stack")  # ни одного upstream-вызова
 ok, plan = dry_run_plan()      # plan — JSON {"command", "args", "env_keys"}, без запуска
 ```
 

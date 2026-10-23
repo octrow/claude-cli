@@ -185,7 +185,7 @@ res = run_claude(prompt, model="sub-first")  # explicit combo
 from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
 
 health()                          # omniroute health
-simulate("hi", combo="free-first")
+simulate("hi", combo="free-stack")
 dry_run_plan()                    # planned command, args and env key *names* only
 ```
 

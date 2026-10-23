@@ -62,11 +62,16 @@ log = logging.getLogger(__name__)
 #: ``claude-opus-*``, and OmniRoute's model→combo glob mappings turn that into a
 #: combo (dashboard: Settings → Routing, or ``/api/model-combo-mappings``):
 #:
-#: * ``opus``   → combo ``hard``       — Claude subscription first (opus-5, sonnet-5),
-#:   then codex, antigravity/agy, gemini and grok-cli.
-#: * ``sonnet`` → combo ``free-stack`` — free ladder led by gemini-3.8-flash and
-#:   kilocode free models; no Claude subscription target at all.
-#: * ``haiku``  → combo ``free-first``  — the older free ladder, subscription last.
+#: * ``opus``   → combo ``hard``       — Claude subscription first (opus-5.5, sonnet-5.5),
+#:   then grok-cli, a kilocode free model and codex.
+#: * ``sonnet`` and ``haiku`` → combo ``free-stack`` — free ladder of kilocode free
+#:   models, gemini (API key) and codex; no Claude subscription target at all.
+#: * any other ``claude-*`` id → combo ``sub-first``.
+#:
+#: No combo routes through Antigravity (``agy``/``antigravity``) or Gemini web: calling
+#: a Google subscription from a third-party tool breaks its ToS and got the account
+#: flagged once (2026-10-16); a second flag is a permanent ban. Google goes through
+#: the official Gemini API key only (``gemini/…``).
 #:
 #: So ``sonnet`` is now the "bulk work, spare the $20 plan" lever: it costs nothing
 #: and does NOT touch the Claude subscription. ``opus`` is the one that spends it —
