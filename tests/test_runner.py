@@ -250,13 +250,11 @@ def test_context_limit_is_not_a_usage_limit(fake_run):
 
 def test_nonzero_exit_strips_omniroute_noise_from_stderr(fake_run):
     """The real error survives; the wrapper's warnings around it don't."""
-    stderr = "\n".join(
-        [
-            "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in ... is ignored, ... set it first\x1b[0m",
-            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY ...",
-            "📋 Loaded env from /home/user/.omniroute/.env",
-            "Error: the real cause",
-        ]
+    stderr = (
+        "\x1b[33m⚠ STORAGE_ENCRYPTION_KEY in ... is ignored, ... set it first\x1b[0m\n"
+        "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY ...\n"
+        "📋 Loaded env from /home/user/.omniroute/.env\n"
+        "Error: the real cause"
     )
     fake_run(returncode=1, stdout="", stderr=stderr)
     with pytest.raises(ClaudeCliError) as exc_info:
