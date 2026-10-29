@@ -291,26 +291,16 @@ def _matched_line(combined: str, hit: re.Match) -> str:
     return combined[start:end if end != -1 else len(combined)].strip()[:500]
 
 
-def _finish(
+def _raise_if_failed(
     returncode: int | None,
     stdout: str,
     stderr: str,
+    env: dict,
     *,
-    output_format: str,
-    elapsed_ms: int,
-    tier: str | None = None,
-    via_gateway: bool = True,
-) -> ClaudeResult:
-    """Classify a finished run: raise on failure, else return the result.
-
-    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
-    always prefixes ``omniroute run``); it decides whether a usage limit is
-    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
-    """
-    try:  # a failed run's envelope carries the real error text in `result`
-        env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
-    except ValueError:
-        env = {}
+    tier: str | None,
+    via_gateway: bool,
+) -> None:
+    """Raise the matching error when the run failed, else return."""
     result = env.get("result") if isinstance(env.get("result"), str) else None
     clean_stdout = clean_cli_text(stdout or "")
     clean_stderr = clean_cli_text(stderr or "")
@@ -355,6 +345,29 @@ def _finish(
         raise ClaudeCliError(
             f"claude exited {returncode}: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
         )
+
+
+def _finish(
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+    *,
+    output_format: str,
+    elapsed_ms: int,
+    tier: str | None = None,
+    via_gateway: bool = True,
+) -> ClaudeResult:
+    """Classify a finished run: raise on failure, else return the result.
+
+    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
+    always prefixes ``omniroute run``); it decides whether a usage limit is
+    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
+    """
+    try:  # a failed run's envelope carries the real error text in `result`
+        env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
+    except ValueError:
+        env = {}
+    _raise_if_failed(returncode, stdout, stderr, env, tier=tier, via_gateway=via_gateway)
 
     if output_format != "stream-json":
         try:
