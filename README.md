@@ -30,7 +30,7 @@ uv add claude-subprocess   # or: pip install claude-subprocess
 The PyPI name is `claude-subprocess`, the import name is `claude_cli`. At runtime you need
 `omniroute` and `claude` on `PATH`, with Claude Code logged in.
 
-## A call
+## Usage
 
 ```python
 from claude_cli import run_claude, extract_json
