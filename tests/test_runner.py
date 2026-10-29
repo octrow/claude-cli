@@ -825,3 +825,29 @@ async def test_arun_claude_caps_retries_and_takes_allowed_tools(fake_async, monk
     args = calls[0]["args"]
     assert args[args.index("--allowed-tools") + 1] == "Read(//a.png)"
     assert calls[0]["env"]["CLAUDE_CODE_MAX_RETRIES"] == runner_mod.DEFAULT_MAX_RETRIES
+
+
+# --- direct mode: the local `claude` login pays, no OmniRoute -----------------
+
+def test_build_args_direct_calls_claude_itself():
+    args = build_args(mcp_config="m", model="claude-sonnet-5-5", direct=True)
+    assert args[:4] == ["claude", "-p", "--model", "claude-sonnet-5-5"]
+    assert "omniroute" not in args and "--" not in args
+
+
+def test_build_args_direct_refuses_gateway_options():
+    with pytest.raises(ValueError, match="direct"):
+        build_args(mcp_config="m", direct=True, profile="high")
+
+
+def test_direct_run_drops_a_gateway_base_url_and_its_limit_ends_the_session(
+        fake_run, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://localhost:20128")
+    calls = fake_run()
+    run_claude("x", direct=True)
+    assert calls[0]["args"][0] == "claude"
+    assert "ANTHROPIC_BASE_URL" not in calls[0]["env"]
+    fake_run(returncode=1, stderr="usage limit reached")
+    with pytest.raises(UsageLimitError) as exc:
+        run_claude("x", direct=True)
+    assert exc.value.session_wide

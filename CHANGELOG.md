@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `direct=True` on `run_claude` and `build_args`: `claude -p` without OmniRoute, on the local Claude Code login (gateway and API-key variables are dropped from its environment). A usage limit there is session-wide.
+
 ## [0.1.3] - 2026-10-15
 
 ### Changed

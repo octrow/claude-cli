@@ -160,9 +160,15 @@ class ClaudeResult:
 DEFAULT_MAX_RETRIES = "2"
 
 
-def _child_env() -> dict[str, str]:
-    """The child's environment: ours, with Claude Code's retry count capped by default."""
-    return {"CLAUDE_CODE_MAX_RETRIES": DEFAULT_MAX_RETRIES, **os.environ}
+# what would point a direct `claude` at a gateway or an API key instead of its own login
+GATEWAY_ENV = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")
+
+
+def _child_env(direct: bool = False) -> dict[str, str]:
+    """The child's environment: ours, with Claude Code's retry count capped by default.
+    A direct call drops the gateway and API-key variables, so the local login pays."""
+    env = {"CLAUDE_CODE_MAX_RETRIES": DEFAULT_MAX_RETRIES, **os.environ}
+    return {k: v for k, v in env.items() if not (direct and k in GATEWAY_ENV)}
 
 
 def claude_available() -> bool:
@@ -187,8 +193,13 @@ def build_args(
     context: str | None = None,
     provider: str | None = None,
     profile: str | None = None,
+    direct: bool = False,
 ) -> list[str]:
     """Build argv for one Claude call through OmniRoute. Never includes ``--bare``.
+
+    ``direct`` calls ``claude`` itself instead: the account the local Claude Code is
+    logged in to pays, and ``model`` is a plain Claude model id. The gateway options
+    mean nothing there and are refused.
 
     The combo is chosen by ``model`` alone: an alias goes through the gateway's
     model→combo mappings, a bare combo name (``"sub-first"``) selects that combo.
@@ -201,6 +212,8 @@ def build_args(
     """
     if tier is not None and tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
+    if direct and any((tier, remote, base_url, context, provider, profile)):
+        raise ValueError("direct calls take no gateway options (tier, profile, remote…)")
     gateway: list[str] = []
     if remote:
         gateway += ["--remote", remote]
@@ -213,7 +226,8 @@ def build_args(
     resolved_profile = profile or tier
     if resolved_profile:
         gateway += ["--profile", resolved_profile]
-    args = ["omniroute", "run", *gateway, "claude", "--", "-p", "--model", model]
+    prefix = [] if direct else ["omniroute", "run", *gateway]
+    args = [*prefix, "claude", *([] if direct else ["--"]), "-p", "--model", model]
     if effort:
         args += ["--effort", effort]
     args += ["--output-format", output_format]
@@ -402,8 +416,12 @@ def run_claude(
     provider: str | None = None,
     profile: str | None = None,
     backend: str = "auto",
+    direct: bool = False,
 ) -> ClaudeResult:
     """Run one prompt through the local CLI (blocking).
+
+    ``direct`` skips OmniRoute (see :func:`build_args`) and the HTTP backend; a usage
+    limit is then the local account's and ends the session.
 
     ``backend``: "auto" tries the OmniRoute HTTP API first for tool-less calls and falls
     back to the CLI; "cli" never uses HTTP; "api" only HTTP (see :mod:`.http_api`).
@@ -422,13 +440,13 @@ def run_claude(
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
     """
-    if (res := _http_first(prompt, backend, model, timeout, tools, allowed_tools,
-                           output_format, slash_commands, cwd,
-                           (remote, base_url, context, provider))) is not None:
+    if not direct and (res := _http_first(prompt, backend, model, timeout, tools,
+                                          allowed_tools, output_format, slash_commands, cwd,
+                                          (remote, base_url, context, provider))) is not None:
         return res
     log.info(
-        "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)", tier,
+        "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s%s",
+        model, effort, len(prompt), tools, cwd or "(temp)", tier, " direct" if direct else "",
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
@@ -438,14 +456,14 @@ def run_claude(
             slash_commands=slash_commands, setting_sources=setting_sources,
             permission_mode=permission_mode,
             tier=tier, remote=remote, base_url=base_url,
-            context=context, provider=provider, profile=profile,
+            context=context, provider=provider, profile=profile, direct=direct,
         )
         # Popen, not subprocess.run: run's timeout kills only the direct child, which
         # orphans the real `claude` under `omniroute run` (see _kill_tree).
         proc = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             cwd=str(cwd) if cwd else work, text=True, start_new_session=True,
-            env=_child_env(),
+            env=_child_env(direct),
         )
         try:
             stdout, stderr = proc.communicate(prompt, timeout=timeout)
@@ -462,6 +480,7 @@ def run_claude(
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
         tier=tier,
+        via_gateway=not direct,
     )
 
 

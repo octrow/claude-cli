@@ -179,6 +179,13 @@ the gateway's model-to-combo mappings, or you pass a combo name directly. `tier=
 res = run_claude(prompt, model="sub-first")  # explicit combo
 ```
 
+`direct=True` skips OmniRoute: `claude -p` runs on the account the local Claude Code is
+logged in to, `model` is a plain Claude model id, and a usage limit ends the session.
+
+```python
+res = run_claude(prompt, model="claude-sonnet-5-5", direct=True)
+```
+
 ## Checks before you spend quota
 
 ```python
