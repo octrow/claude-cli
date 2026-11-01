@@ -1,6 +1,6 @@
 [project]
 name = "claude-subprocess"
-version = "0.1.7"
+version = "0.1.8"
 license = "MIT"
 readme = "README.md"
 authors = [{ name = "Daniil Petrov" }]

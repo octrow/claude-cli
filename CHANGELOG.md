@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-01
+
 ### Fixed
 
 - `run_chunks` stops spending after `NotLoggedInError` or a session-wide `UsageLimitError`: chunks not yet started are recorded as `skipped after <Error>` instead of being run; results collected so far are kept.
