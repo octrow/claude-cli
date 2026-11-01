@@ -21,6 +21,8 @@ library replaced them.
 
 Standard library only, Python 3.12+.
 
+<img src="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/demo.gif" width="100%" alt="A real recorded run in the Python REPL: run_claude('Tag &quot;CI is red&quot; as JSON {&quot;type&quot;: str, &quot;urgent&quot;: bool}', model=&quot;haiku&quot;) returns in about 3 seconds, and extract_json(res.text) gives {'type': 'ci_failure', 'urgent': True}.">
+
 ## Install
 
 ```bash
