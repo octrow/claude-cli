@@ -145,12 +145,12 @@ Module: `http_api`
 Decides: the exact `claude` command line.
 In: all CLI kwargs. Out: `list[str]`.
 Branches:
-- `tier` not in `ultra/high/middle/low` → `ValueError`; `direct` with any gateway option → `ValueError`;
+- `tier` not in `ultra/high/middle/low` → `ValueError`; `direct` with any gateway option → `ValueError`; `allowed_tools` without `tools` → `ValueError`;
 - any string kwarg starting with `-` → `ValueError` (it would parse as a flag);
 - gateway: `omniroute run [--remote …] [--base-url …] [--context …] [--provider …] [--profile <profile or tier>] claude -- -p`;
 - direct: `claude -p`;
 - then `--model`, `--effort` (omitted when `None`), `--output-format`; stream-json adds `--include-partial-messages --verbose`;
-- always `--no-session-persistence --tools <tools>`; non-empty `tools` adds `--allowed-tools <allowed_tools or tools>`; `allowed_tools` without `tools` is dropped (#16);
+- always `--no-session-persistence --tools <tools>`; non-empty `tools` adds `--allowed-tools <allowed_tools or tools>`;
 - `--disable-slash-commands` unless `slash_commands`; `--permission-mode` when set;
 - always `--setting-sources <setting_sources> --strict-mcp-config --mcp-config <empty file>`.
 `--bare` is never added. `tier`/`profile` only pick `CLAUDE_CONFIG_DIR` inside the gateway, not the combo.
@@ -184,7 +184,7 @@ Module: `runner`
 
 Decides: the envelope dict the next steps read.
 Branches:
-- `json` → `json.loads(stdout)`; on failure the first `{` is `raw_decode`d (gateway banner before, noise after);
+- `json` → `json.loads(stdout)`; on failure `raw_decode` from the first `{` that parses (gateway banner before, even with a stray `{`; noise after);
 - `stream-json` → every `{"type":"result"}` line merged key by key: `result` plus `usage`, `total_cost_usd`, `duration_ms`, `duration_api_ms`, `num_turns`, `session_id`, `model`, `modelUsage`, `is_error`.
 Fails: unparseable → `{}` here; on a zero exit step 11 raises `claude returned non-JSON: …` (json), `unexpected claude envelope: <type>` (json, not a dict) or `claude produced no result` (stream-json).
 Module: `parsing`
@@ -252,10 +252,10 @@ Module: `preflight`
 
 ### JSON from prose (`extract_json`, `extract_json_or_none`)
 
-Strips a fence, tries a fenced `{…}` block, then `raw_decode` from the first `{` only (a stray `{` before the object fails, #18; in an array the first object wins). No `{` → `json.loads` of the whole text (`"[1,2]"` parses). `_or_none` returns `None` on `ValueError`/`TypeError`.
+Strips a fence, tries a fenced `{…}` block, then `raw_decode` from the first `{` that parses: a brace that fails (`{name}` in prose) is skipped and the search resumes after the failure point, so a truncated object raises instead of yielding its inner object; in an array the first object wins. No `{` → `json.loads` of the whole text (`"[1,2]"` parses). `_or_none` returns `None` on `ValueError`/`TypeError`.
 Module: `parsing`
 
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- No open HIGH or MEDIUM findings. Open LOW ones (#10, #16, #18) are in the plan.
+- No open findings. New ones go to the plan with the next free number.

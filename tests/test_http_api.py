@@ -119,7 +119,7 @@ def test_http_error_is_cli_error():
     "kw",
     [
         {"tools": "Read"},
-        {"allowed_tools": "Read"},
+        {"tools": "Read", "allowed_tools": "Read(//f)"},
         {"output_format": "stream-json"},
         {"slash_commands": True},
         {"backend": "cli"},

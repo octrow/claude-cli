@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `allowed_tools` without `tools` raises `ValueError`; it used to be dropped from argv, leaving a run with no tools and no error.
+- `extract_json` and `parse_envelope` skip a stray `{` before the object (`Use {name}: {"a": 1}`); a truncated object still raises instead of yielding its inner object.
+- `preflight.MATRIX` describes the HTTP route and how `--model` picks the combo.
+
 ## [0.1.10] - 2026-11-01
 
 ### Fixed

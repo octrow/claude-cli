@@ -143,12 +143,12 @@ Module: `http_api`
 Решает: точную командную строку `claude`.
 Вход: все CLI-kwargs. Выход: `list[str]`.
 Ветки:
-- `tier` не из `ultra/high/middle/low` → `ValueError`; `direct` с любой опцией шлюза → `ValueError`;
+- `tier` не из `ultra/high/middle/low` → `ValueError`; `direct` с любой опцией шлюза → `ValueError`; `allowed_tools` без `tools` → `ValueError`;
 - любой строковый kwarg, начинающийся с `-` → `ValueError` (иначе разобрался бы как флаг);
 - шлюз: `omniroute run [--remote …] [--base-url …] [--context …] [--provider …] [--profile <profile или tier>] claude -- -p`;
 - direct: `claude -p`;
 - дальше `--model`, `--effort` (нет при `None`), `--output-format`; stream-json добавляет `--include-partial-messages --verbose`;
-- всегда `--no-session-persistence --tools <tools>`; непустой `tools` добавляет `--allowed-tools <allowed_tools или tools>`; `allowed_tools` без `tools` теряется (#16);
+- всегда `--no-session-persistence --tools <tools>`; непустой `tools` добавляет `--allowed-tools <allowed_tools или tools>`;
 - `--disable-slash-commands`, если не `slash_commands`; `--permission-mode`, если задан;
 - всегда `--setting-sources <setting_sources> --strict-mcp-config --mcp-config <пустой файл>`.
 `--bare` не добавляется никогда. `tier`/`profile` выбирают только `CLAUDE_CONFIG_DIR` внутри шлюза, не комбо.
@@ -182,7 +182,7 @@ Module: `runner`
 
 Решает: dict-конверт, который читают следующие шаги.
 Ветки:
-- `json` → `json.loads(stdout)`; при ошибке `raw_decode` с первой `{` (баннер шлюза до, шум после);
+- `json` → `json.loads(stdout)`; при ошибке `raw_decode` с первой `{`, которая разбирается (баннер шлюза до, даже с лишней `{`; шум после);
 - `stream-json` → все строки `{"type":"result"}` сливаются по ключам: `result` плюс `usage`, `total_cost_usd`, `duration_ms`, `duration_api_ms`, `num_turns`, `session_id`, `model`, `modelUsage`, `is_error`.
 Сбой: не разобралось → здесь `{}`; при нулевом коде шаг 11 бросает `claude returned non-JSON: …` (json), `unexpected claude envelope: <type>` (json, не dict) или `claude produced no result` (stream-json).
 Module: `parsing`
@@ -250,10 +250,10 @@ Module: `preflight`
 
 ### JSON из текста (`extract_json`, `extract_json_or_none`)
 
-Снимает fence, пробует блок `{…}` в fence, затем `raw_decode` только с первой `{` (лишняя `{` перед объектом ломает разбор, #18; в массиве побеждает первый объект). Нет `{` → `json.loads` всего текста (`"[1,2]"` разбирается). `_or_none` возвращает `None` на `ValueError`/`TypeError`.
+Снимает fence, пробует блок `{…}` в fence, затем `raw_decode` с первой `{`, которая разбирается: неразобранная скобка (`{name}` в тексте) пропускается, поиск идёт дальше с точки ошибки, так что усечённый объект даёт ошибку, а не свой вложенный объект; в массиве побеждает первый объект. Нет `{` → `json.loads` всего текста (`"[1,2]"` разбирается). `_or_none` возвращает `None` на `ValueError`/`TypeError`.
 Module: `parsing`
 
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- Открытых HIGH и MEDIUM нет. Открытые LOW (#10, #16, #18) — в плане.
+- Открытых findings нет. Новые идут в план со следующим свободным номером.

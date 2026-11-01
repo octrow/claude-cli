@@ -20,15 +20,15 @@ Severity: HIGH — неверный результат для пользоват
 | 7 ✅ | 10 | Прямой вызов тоже проходит через регэкспы шлюза: `503` или `unrecognized_model` в выводе `claude -p` дают подсказку «This looks like OmniRoute» (`runner.py:296`), совпадение с `_GATEWAY_EXHAUSTED_RE` — «omniroute gateway error» (`:345`), хотя шлюза в вызове нет. | При `via_gateway=False` пропускать gateway-ветку и подсказку. | LOW |
 | 8 ✅ | Entry points | `direct` есть только у `run_claude`; `arun_claude`/`stream_claude` всегда идут через шлюз. Docstring `_finish` (`runner.py:411-412`) говорит «False только для ручного direct-вызова» — устарел, `run_claude` передаёт `not direct`. `claude_available()` требует `omniroute` даже для direct-пользователя (`runner.py:174-176`). | Поправить docstring; `direct` в async/stream — когда понадобится. | LOW |
 | 9 ✅ | Output | Ответ по HTTP теряет `tier` (`http_api.py:149`; поле документировано как «echoed verbatim», `runner.py:152`), и успешный HTTP-вызов не пишет ни одной строки лога: по логам не видно, какой маршрут ответил. | Ставить `tier` в HTTP-результат; `log.info` на успех HTTP с моделью и длительностью. | LOW |
-| 10 | Preflight | `MATRIX` устарел: «api-reference/openapi AVOIDED — CLI surface covers every behavior» (`preflight.py:119-122`), а `http_api.py` ходит в `/v1/chat/completions`; «tier selection rides on gateway-level flags» (`:65-67`) противоречит docstring `TIERS` (`:176-179`); «the only model path» (`:61`) — HTTP теперь тоже путь к модели. | Обновить три строки `MATRIX`. | LOW |
+| 10 ✅ | Preflight | `MATRIX` устарел: «api-reference/openapi AVOIDED — CLI surface covers every behavior» (`preflight.py:119-122`), а `http_api.py` ходит в `/v1/chat/completions`; «tier selection rides on gateway-level flags» (`:65-67`) противоречит docstring `TIERS` (`:176-179`); «the only model path» (`:61`) — HTTP теперь тоже путь к модели. | Обновить три строки `MATRIX`. | LOW |
 | 11 ✅ | 6 | Валидация kwargs (`_check_routing`, `_refuse_flag_like`) живёт в `build_args`, который вызывается после `_http_first` (`runner.py:504-535`). `run_claude("x", tier="bogus", model="-x")` отвечает по HTTP, а при упавшем шлюзе или cooldown тот же вызов даёт `ValueError`. Опечатка в конфиге всплывает только в дни отката. | Проверять kwargs до `_http_first`. | MEDIUM |
 | 12 ✅ | 8, Output | Нет `omniroute`/`claude` в PATH или нет каталога `cwd` → голый `FileNotFoundError` из `Popen`/`create_subprocess_exec` (`runner.py:555`, `:661`, `:818`). `errors.py:3-6` обещает, что `except RuntimeError` даёт мягкую деградацию; вызывающий падает. В `auto` проявляется только после сбоя HTTP. | Оборачивать `OSError` спавна в `ClaudeCliError`. | MEDIUM |
 | 13 ✅ | 5 | Любой `HttpLlmError`, включая 4xx одного запроса (400/422 на непринятый id модели, см. #4), выключает HTTP на 600 с для всего процесса (`http_api.py:170-171`): весь трафик уходит в CLI и подписку. Задокументировано (`docs/OMNIROUTE.md`, «Откат»), но цена не названа. | Вопрос: не включать cooldown на 4xx, кроме 401/429. | MEDIUM |
 | 14 ✅ | 3 | `backend` не валидируется: `cli_only` проверяется раньше `api` (`http_api.py:162`), поэтому `backend="api", tools="Read"` или `direct=True` молча запускает CLI вопреки docstring «"api" only HTTP» (`runner.py:488`); любое значение кроме `cli`/`api` (`CLAUDE_CLI_BACKEND=CLI`, `backend="http"`) работает как `auto`. | `ValueError` на неизвестное значение; при `api` + CLI-only сигнале — ошибка вместо тихого CLI. | LOW |
 | 15 ✅ | 4 | Не-dict `usage` в ответе (`"usage": "n/a"`) → `AttributeError` в `http_api.py:146`, вне `try`; `try_http` ловит только `HttpLlmError`, так что `auto`-вызов падает без отката и cooldown. | Проверять `isinstance(usage, dict)`. | LOW |
-| 16 | 2, 6 | `allowed_tools` без `tools` уводит вызов в CLI (`runner.py:451`), но в argv попадает `--tools ""` и нет `--allowed-tools` (`:265-269`): прогон без инструментов, без ошибки. | `ValueError`, если `allowed_tools` задан без `tools`. | LOW |
+| 16 ✅ | 2, 6 | `allowed_tools` без `tools` уводит вызов в CLI (`runner.py:451`), но в argv попадает `--tools ""` и нет `--allowed-tools` (`:265-269`): прогон без инструментов, без ошибки. | `ValueError`, если `allowed_tools` задан без `tools`. | LOW |
 | 17 ✅ | 4 | `OMNIROUTE_URL=http://localhost:20128/` даёт `…20128//v1/chat/completions` (`http_api.py:121`); на 404 каждый `auto`-вызов уходит в cooldown и CLI. | `rstrip("/")`. | LOW |
-| 18 | JSON from prose | `extract_json('Use {name}: {"a": 1}')` → `JSONDecodeError`: `raw_decode` пробует только первую `{` (`parsing.py:65-69`); то же в `parse_envelope` (`:133-136`). | Перебирать `{` до первого успешного `raw_decode`. | LOW |
+| 18 ✅ | JSON from prose | `extract_json('Use {name}: {"a": 1}')` → `JSONDecodeError`: `raw_decode` пробует только первую `{` (`parsing.py:65-69`); то же в `parse_envelope` (`:133-136`). | Перебирать `{` до первого успешного `raw_decode`. | LOW |
 
 ## Решения по вопросам
 
@@ -38,7 +38,7 @@ Severity: HIGH — неверный результат для пользоват
 
 ## Порядок работы
 
-1. #10, #16, #18 — попутно.
+Все findings закрыты (2026-11-01).
 
 `direct` для `arun_claude`/`stream_claude` (часть #8) не добавлен: по предложению плана — когда понадобится.
 
@@ -62,5 +62,5 @@ Severity: HIGH — неверный результат для пользоват
 
 ## Готово, когда
 
-- [ ] у каждого finding ✅ или решение «оставить как есть» с причиной;
-- [ ] Known gaps в карте перечисляет каждый открытый HIGH и MEDIUM.
+- [x] у каждого finding ✅ или решение «оставить как есть» с причиной;
+- [x] Known gaps в карте перечисляет каждый открытый HIGH и MEDIUM.

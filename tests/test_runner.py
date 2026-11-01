@@ -979,3 +979,18 @@ def test_claude_available_direct_needs_only_claude(monkeypatch):
     )
     assert claude_available(direct=True) is True
     assert claude_available() is False
+
+
+# --- allowed_tools without tools is refused, not silently dropped (#16) --------
+
+
+def test_allowed_tools_without_tools_is_refused():
+    with pytest.raises(ValueError, match="allowed_tools"):
+        build_args(allowed_tools="Read(//f.png)", mcp_config="m.json")
+
+
+def test_allowed_tools_without_tools_fails_before_any_route(fake_run):
+    calls = fake_run()
+    with pytest.raises(ValueError, match="allowed_tools"):
+        run_claude("p", allowed_tools="Read(//f.png)")
+    assert calls == []

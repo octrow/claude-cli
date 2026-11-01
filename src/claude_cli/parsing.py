@@ -48,6 +48,27 @@ def strip_fences(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _decode_first_object(text: str) -> Any:
+    """``raw_decode`` from the first ``{`` that parses, ignoring what follows the object.
+
+    A brace whose parse fails mid-way (``{name}`` in prose, a banner) is skipped, and the
+    search resumes AFTER the failure point: a ``{`` before it lies inside the failed text,
+    so a truncated ``{"items": [{"a": 1}, …`` raises instead of returning its inner object.
+    Raises the first :class:`json.JSONDecodeError`; ``ValueError`` when there is no ``{``.
+    """
+    decoder = json.JSONDecoder()
+    start, first_error = text.find("{"), None
+    while start != -1:
+        try:
+            return decoder.raw_decode(text, start)[0]
+        except json.JSONDecodeError as exc:
+            first_error = first_error or exc
+            start = text.find("{", max(exc.pos, start + 1))
+    if first_error is None:
+        raise ValueError("no '{' in text")
+    raise first_error
+
+
 def extract_json(text: str) -> Any:
     """Pull the first balanced ``{...}`` object out of a model reply.
 
@@ -62,11 +83,9 @@ def extract_json(text: str) -> Any:
             return json.loads(fenced.group(1))
         except json.JSONDecodeError:
             pass  # greedy match spanned two fenced blocks — fall back to the scan
-    start = text.find("{")
-    if start == -1:
+    if "{" not in text:
         return json.loads(text)
-    # raw_decode parses the first object at `start` and ignores what follows it
-    return json.JSONDecoder().raw_decode(text, start)[0]
+    return _decode_first_object(text)
 
 
 def extract_json_or_none(text: str) -> Any | None:
@@ -130,11 +149,9 @@ def parse_envelope(stdout: str) -> dict:
     try:
         env = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        start = stdout.find("{")
-        try:
-            # raw_decode: tolerate trailing wrapper noise after the envelope too
-            env = json.JSONDecoder().raw_decode(stdout, start)[0] if start != -1 else None
-        except json.JSONDecodeError:
+        try:  # wrapper noise before (even a stray `{`) or after the envelope is skipped
+            env = _decode_first_object(stdout)
+        except ValueError:  # JSONDecodeError is a ValueError too
             env = None
         if env is None:
             raise ValueError(f"claude returned non-JSON: {stdout[-300:]}") from exc

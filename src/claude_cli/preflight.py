@@ -58,13 +58,13 @@ MATRIX = (
     {
         "area": "launch: run claude",
         "status": "USED",
-        "reason": "the only model path; runner.build_args owns it",
+        "reason": "the model path for tool, project, stream-json and claude-* calls, and the HTTP fallback; runner.build_args owns it",
         "guides": ("USER_GUIDE", "SETUP_GUIDE", "CLI-TOOLS", "README quick-start"),
     },
     {
         "area": "routing: combos + simulate + models/combo/test",
         "status": "OPT-IN",
-        "reason": "tier selection rides on gateway-level flags; verified quota-free via simulate/--dry-run",
+        "reason": "--model picks the combo (alias via mappings or a bare combo name); tier/profile only set CLAUDE_CONFIG_DIR; checked quota-free via simulate/--dry-run",
         "guides": ("AUTO-COMBO", "CLI-TOOLS", "USER_GUIDE", "FEATURES"),
     },
     {
@@ -117,8 +117,8 @@ MATRIX = (
     },
     {
         "area": "api-reference/openapi",
-        "status": "AVOIDED",
-        "reason": "no-live-CLI-testability + zero-dependencies: the CLI surface covers every behavior we need",
+        "status": "USED",
+        "reason": "POST /v1/chat/completions for tool-less calls (http_api, stdlib urllib); the rest of the API stays unused",
         "guides": ("API_REFERENCE", "openapi.yaml"),
     },
     {

@@ -247,6 +247,10 @@ def build_args(
     _check_routing(
         tier, direct, gateway_set=any((tier, remote, base_url, context, provider, profile))
     )
+    if allowed_tools and not tools:
+        # it is only ever passed alongside --tools; alone it would be dropped and the run
+        # would quietly have no tools at all
+        raise ValueError("allowed_tools narrows tools; pass tools too (e.g. tools='Read')")
     _refuse_flag_like(
         {
             "model": model,

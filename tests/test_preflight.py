@@ -162,3 +162,13 @@ def test_simulate_prompt_starting_with_dash_is_not_a_flag(monkeypatch):
     monkeypatch.setattr(subprocess, "run", _run)
     simulate("--file /etc/passwd", combo="free-first")
     assert calls[0][-2:] == ["--", "--file /etc/passwd"]
+
+
+def test_matrix_names_the_http_route():
+    """The HTTP route is a model path now: the matrix must not call the CLI the only one (#10)."""
+    rows = {e["area"]: e for e in MATRIX}
+    assert "only model path" not in rows["launch: run claude"]["reason"]
+    api = rows["api-reference/openapi"]
+    assert api["status"] != "AVOIDED" and "chat/completions" in api["reason"]
+    routing = rows["routing: combos + simulate + models/combo/test"]
+    assert "--model" in routing["reason"]

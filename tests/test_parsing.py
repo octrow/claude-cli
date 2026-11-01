@@ -149,3 +149,19 @@ def test_extract_json_two_fenced_blocks_returns_first():
 def test_parse_envelope_tolerates_trailing_noise():
     out = 'banner\n{"result": "ok"}\nwarning: trailing wrapper line\n'
     assert parse_envelope(out)["result"] == "ok"
+
+
+# --- a stray brace in prose no longer hides the object after it (#18) ----------
+
+
+def test_extract_json_skips_a_stray_brace_before_the_object():
+    assert extract_json('Use {name} as the key: {"a": 1}') == {"a": 1}
+
+
+def test_extract_json_does_not_return_an_inner_object_of_a_truncated_one():
+    with pytest.raises(json.JSONDecodeError):
+        extract_json('{"items": [{"a": 1}, {"b": 2')
+
+
+def test_parse_envelope_skips_a_stray_brace_in_a_banner():
+    assert parse_envelope('⚠ {proxy} warning\n{"result": "ok"}') == {"result": "ok"}
