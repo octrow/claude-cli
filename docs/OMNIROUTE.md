@@ -157,7 +157,9 @@ use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.prefl
 
 **Маршрутизация.** `POST {OMNIROUTE_URL или http://localhost:20128}/v1/chat/completions`
 (формат OpenAI, `Authorization: Bearer` из `OMNIROUTE_API_KEY` в env или из строки
-`OMNIROUTE_API_KEY` в `~/.omniroute/.env`). Нет ключа — HTTP молча пропускается. На CLI
+`OMNIROUTE_API_KEY` в `~/.omniroute/.env`). Нет ключа — HTTP молча пропускается. Ключ
+уходит только по https или по http на loopback; редиректы не выполняются, URL с
+`user:password@` отклоняется (HTTP пропускается, вызов уходит в CLI). На CLI
 остаются вызовы с: `tools`/`allowed_tools`, `cwd` проекта (в нём есть `CLAUDE.md` или
 `.claude/`; нейтральный пустой cwd, как у jobs `draft_stages`, HTTP не мешает),
 `slash_commands`, переопределениями remote/base_url/context/provider,

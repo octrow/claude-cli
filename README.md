@@ -63,6 +63,8 @@ Tool-less `run_claude` / `arun_claude` calls are POSTed to OmniRoute's `/v1/chat
 The key comes from `OMNIROUTE_API_KEY` or `~/.omniroute/.env`, the URL from `OMNIROUTE_URL`
 (default `http://localhost:20128`). Without a key the HTTP route is skipped. If it fails, the
 wrapper logs a warning, falls back to the CLI and stops trying HTTP for 600 s in that process.
+The key is only sent over https, or over plain http to a loopback host. Redirects are not
+followed, and a URL with `user:password@` in it is refused.
 
 These stay on the CLI: calls with `tools`/`allowed_tools`, a project `cwd` (one holding
 `CLAUDE.md` or `.claude/`), `slash_commands`, remote overrides, `output_format="stream-json"`,
@@ -175,7 +177,8 @@ text = cached_run(run_claude, store, prompt, model="haiku", purpose="classify", 
 `cache_key(model, prompt, schema=..., version=..., purpose=..., tools=...)` is a sha256 over
 the normalized prompt. Empty optional parts never change a key, so adding a dimension doesn't
 invalidate old rows. `cached_run` doesn't store the prompt by default (`store_prompt=False`):
-prompts often carry private data, so only the key touches disk. For hit/miss visibility use
+prompts often carry private data. The response itself is stored in plaintext, so a new cache
+file is created owner-only (`0600`, its folder `0700`). For hit/miss visibility use
 `store.get` / `store.put` directly. `DictCacheStore` is the in-memory store for tests.
 
 Batch, where one bad chunk never aborts the run:

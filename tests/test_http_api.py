@@ -36,10 +36,11 @@ def http(monkeypatch):
         calls.append((req, json.loads(req.data), timeout))
         if H.fail:
             raise urllib.error.URLError("down")
-        return io.StringIO(json.dumps(REPLY))
+        return io.BytesIO(H.body)
 
     H.calls = calls
-    monkeypatch.setattr(http_api.urllib.request, "urlopen", urlopen)
+    H.body = json.dumps(REPLY).encode()
+    monkeypatch.setattr(http_api._OPENER, "open", urlopen)
     return H
 
 
@@ -186,3 +187,69 @@ def test_stream_claude_with_tools_stays_on_cli(auto, http, cli):
     with pytest.raises(RuntimeError, match="cli reached"):
         stream_claude("p", lambda _e: None, tools="WebSearch")
     assert not http.calls
+
+
+@pytest.mark.parametrize(
+    "url", ["http://example.com:20128", "http://10.0.0.5:20128", "ftp://localhost"]
+)
+def test_remote_plain_http_never_gets_the_key(auto, http, monkeypatch, url):
+    monkeypatch.setenv("OMNIROUTE_URL", url)
+    with pytest.raises(HttpLlmError, match="https"):
+        omniroute_chat("p", timeout=5)
+    assert http.calls == []
+
+
+@pytest.mark.parametrize(
+    "url", ["http://localhost:20128", "http://127.0.0.2:1", "http://[::1]:1", "https://gw.example"]
+)
+def test_loopback_http_and_any_https_are_allowed(auto, http, monkeypatch, url):
+    monkeypatch.setenv("OMNIROUTE_URL", url)
+    omniroute_chat("p", timeout=5)
+    assert http.calls[0][0].full_url == url + "/v1/chat/completions"
+
+
+def test_credentials_in_url_are_refused_and_not_echoed(auto, http, monkeypatch):
+    monkeypatch.setenv("OMNIROUTE_URL", "https://user:hunter2@gw.example")
+    with pytest.raises(HttpLlmError) as exc:
+        omniroute_chat("p", timeout=5)
+    assert "hunter2" not in str(exc.value)
+    assert http.calls == []
+
+
+def test_oversized_response_is_rejected(auto, http, monkeypatch):
+    monkeypatch.setattr(http_api, "MAX_RESPONSE_BYTES", 10)
+    with pytest.raises(HttpLlmError, match="larger than"):
+        omniroute_chat("p", timeout=5)
+
+
+def test_redirect_is_not_followed_with_the_key(auto, monkeypatch):
+    """A real local server answers 302 to /stolen; the key must never reach it."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            if self.path == "/v1/chat/completions":
+                self.send_response(302)
+                self.send_header("Location", "/stolen")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps(REPLY).encode())
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("OMNIROUTE_URL", f"http://127.0.0.1:{server.server_port}")
+        with pytest.raises(HttpLlmError, match="302"):
+            omniroute_chat("p", timeout=5)
+    finally:
+        server.shutdown()
+    assert [path for path, _ in seen] == ["/v1/chat/completions"]

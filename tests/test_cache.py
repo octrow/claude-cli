@@ -181,3 +181,12 @@ def test_file_store_naive_timestamp_does_not_crash(tmp_path):
         )
         conn.commit()
     assert store.get("k") == "v"
+
+
+def test_file_store_creates_private_db_and_dir(tmp_path):
+    # Responses sit on disk in plaintext: other local users must not read them.
+    path = tmp_path / "new" / "cache.db"
+    store = FileCacheStore(path)
+    store.put("k", "secret answer")
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.parent.stat().st_mode & 0o777 == 0o700

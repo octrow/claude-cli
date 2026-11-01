@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -89,7 +90,10 @@ class FileCacheStore:
         """
         self.path = Path(path).expanduser()
         self.max_age_days = max_age_days
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # responses are stored in plaintext: owner-only dir and file. An existing db
+        # keeps its mode (O_CREAT never changes it); sqlite journals copy the db's mode.
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.close(os.open(self.path, os.O_CREAT | os.O_WRONLY, 0o600))
         with closing(self._connect()) as conn:
             conn.execute(_SCHEMA)
             conn.commit()

@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The HTTP route sends the OmniRoute key only over https, or plain http to a loopback host; a URL with embedded credentials is refused. Redirects are no longer followed, so the key never reaches a second host.
+- HTTP responses are capped at 8 MiB and must finish within the call's timeout.
+- `FileCacheStore` creates a new db file `0600` in a `0700` folder, since cached responses are plaintext.
+
 ## [0.1.4] - 2026-11-01
 
 ### Added
