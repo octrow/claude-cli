@@ -65,25 +65,8 @@ def extract_json(text: str) -> Any:
     start = text.find("{")
     if start == -1:
         return json.loads(text)
-    depth, in_str, esc = 0, False, False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                in_str = False
-        elif ch == '"':
-            in_str = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start : i + 1])
-    return json.loads(text[start:])  # unbalanced — let json raise a clear error
+    # raw_decode parses the first object at `start` and ignores what follows it
+    return json.JSONDecoder().raw_decode(text, start)[0]
 
 
 def extract_json_or_none(text: str) -> Any | None:
