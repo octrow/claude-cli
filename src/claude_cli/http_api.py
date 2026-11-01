@@ -19,14 +19,13 @@ from pathlib import Path
 
 from .errors import ClaudeCliError
 from .parsing import clean_cli_text
-from .runner import ClaudeResult, _raise_classified
+from .runner import BACKENDS, ClaudeResult, _raise_classified
 
 log = logging.getLogger(__name__)
 
 # alias -> combo, the same mapping the gateway applies to `--model` for the CLI;
 # any other value (a bare combo name) passes through unchanged
 COMBOS = {"haiku": "free-stack", "sonnet": "free-stack", "opus": "hard"}
-BACKENDS = ("auto", "cli", "api")
 COOLDOWN_SECS = 600
 #: Statuses that reject this one request (malformed, too large, unknown model): the next
 #: call may pass, so they fall back to the CLI without parking HTTP for the whole process.

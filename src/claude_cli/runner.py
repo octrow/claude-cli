@@ -119,6 +119,9 @@ _GATEWAY_EXHAUSTED_RE = re.compile(
 
 _EMPTY_MCP = '{"mcpServers":{}}'
 
+#: ``backend=`` / ``CLAUDE_CLI_BACKEND`` values: HTTP first with CLI fallback, CLI only, HTTP only.
+BACKENDS = ("auto", "cli", "api")
+
 
 def _kill_tree(proc: subprocess.Popen | asyncio.subprocess.Process) -> None:
     """SIGKILL the child's whole process group (it was started with ``start_new_session``).
@@ -194,8 +197,8 @@ def _check_direct_backend(backend: str) -> None:
     default for gateway calls, not something a direct call asked for."""
     if backend == "api":
         raise ValueError("backend='api' is HTTP only; direct calls run `claude -p` locally")
-    if backend not in ("auto", "cli"):
-        raise ValueError(f"backend={backend!r}: expected one of auto, cli, api")
+    if backend not in BACKENDS:
+        raise ValueError(f"backend={backend!r}: expected one of {', '.join(BACKENDS)}")
 
 
 def _check_routing(tier: str | None, direct: bool, *, gateway_set: bool) -> None:
