@@ -13,7 +13,7 @@
 <rect x="30" y="430" width="540" height="440" rx="16" fill="#1A1F22" stroke="#2F373B" stroke-width="2"/>
 <text x="54" y="468" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#A1A9B0" letter-spacing="1">ARGV · build_args(model=&quot;haiku&quot;)</text>
 <text x="54" y="506" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">omniroute run claude --</text>
-<text x="54" y="538" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">-p --model haiku --effort low</text>
+<text x="54" y="538" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">-p --model haiku --effort medium</text>
 <text x="54" y="570" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">--output-format json</text>
 <text x="54" y="602" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">--no-session-persistence</text>
 <text x="54" y="634" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#E6E8EA">--tools &quot;&quot;</text>

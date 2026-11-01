@@ -3,7 +3,7 @@
     <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-mobile-dark.svg">
     <source media="(max-width: 600px)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-mobile-light.svg">
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-dark.svg">
-    <img src="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-light.svg" width="100%" alt="claude-subprocess: call claude -p from Python on your Claude Code subscription, with the risky flags locked down. Beside the title, the real argv build_args(model='haiku') produces: omniroute run claude -- -p --model haiku --effort low --output-format json --no-session-persistence --tools '' --disable-slash-commands --setting-sources user --strict-mcp-config --mcp-config mcp-empty.json. --bare is never sent because it breaks OAuth.">
+    <img src="https://raw.githubusercontent.com/octrow/claude-cli/main/assets/readme/hero-light.svg" width="100%" alt="claude-subprocess: call claude -p from Python on your Claude Code subscription, with the risky flags locked down. Beside the title, the real argv build_args(model='haiku') produces: omniroute run claude -- -p --model haiku --effort medium --output-format json --no-session-persistence --tools '' --disable-slash-commands --setting-sources user --strict-mcp-config --mcp-config mcp-empty.json. --bare is never sent because it breaks OAuth.">
   </picture>
 </p>
 
