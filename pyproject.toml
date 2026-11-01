@@ -37,3 +37,8 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100  # the code was already written to ~100; only 6 lines were longer
+
+[tool.vulture]
+paths = ["src", "tests"]
+min_confidence = 80
+ignore_names = ["auto"]  # pytest fixture requested for its env side effect, never read

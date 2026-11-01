@@ -47,7 +47,7 @@ def cli(monkeypatch):
     """Fake CLI path: counts the argv builds that reach the subprocess layer."""
     seen = []
 
-    def fake(*a, **kw):
+    def fake(*_args, **kw):
         seen.append(kw)
         raise RuntimeError("cli reached")
 
@@ -144,7 +144,7 @@ def test_backend_api_propagates_errors(auto, http, cli):
 def test_async_path(auto, http, monkeypatch):
     assert asyncio.run(arun_claude("p")).text == "hi"
 
-    async def no_spawn(*a, **kw):
+    async def no_spawn(*_args, **_kw):
         raise RuntimeError("cli reached")
 
     monkeypatch.setattr(runner_mod.asyncio, "create_subprocess_exec", no_spawn)
