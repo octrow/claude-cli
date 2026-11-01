@@ -861,3 +861,39 @@ def test_direct_run_drops_a_gateway_base_url_and_its_limit_ends_the_session(fake
     with pytest.raises(UsageLimitError) as exc:
         run_claude("x", direct=True)
     assert exc.value.session_wide
+
+
+def test_build_args_full_argv_order():
+    args = build_args(
+        mcp_config="m",
+        remote="r",
+        base_url="u",
+        context="c",
+        provider="p",
+        tier="high",
+        effort="low",
+        output_format="stream-json",
+        tools="Read",
+        allowed_tools="Read(//x)",
+        slash_commands=True,
+        permission_mode="plan",
+        setting_sources="project",
+    )
+    assert args == [
+        "omniroute", "run", "--remote", "r", "--base-url", "u", "--context", "c",
+        "--provider", "p", "--profile", "high", "claude", "--", "-p", "--model", "sonnet",
+        "--effort", "low", "--output-format", "stream-json", "--include-partial-messages",
+        "--verbose", "--no-session-persistence", "--tools", "Read", "--allowed-tools",
+        "Read(//x)", "--permission-mode", "plan", "--setting-sources", "project",
+        "--strict-mcp-config", "--mcp-config", "m",
+    ]  # fmt: skip
+
+
+def test_build_args_profile_wins_over_tier():
+    args = build_args(mcp_config="m", tier="high", profile="work")
+    assert args[2:4] == ["--profile", "work"]
+
+
+def test_build_args_unknown_tier_raises():
+    with pytest.raises(ValueError, match="unknown tier"):
+        build_args(mcp_config="m", tier="mega")
