@@ -19,7 +19,7 @@ Homepage = "https://github.com/octrow/claude-cli"
 Issues = "https://github.com/octrow/claude-cli/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff==0.17.3", "ty==0.0.95"]
 
 [build-system]
 requires = ["hatchling"]
