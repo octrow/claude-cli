@@ -176,6 +176,18 @@ def claude_available() -> bool:
     return shutil.which("omniroute") is not None and shutil.which("claude") is not None
 
 
+def _flags(*pairs: tuple[str, str | None]) -> list[str]:
+    """``[flag, value, …]`` for each pair whose value is set, in the order given."""
+    return [part for flag, value in pairs if value for part in (flag, value)]
+
+
+def _check_routing(tier: str | None, direct: bool, *, gateway_set: bool) -> None:
+    if tier is not None and tier not in TIERS:
+        raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
+    if direct and gateway_set:
+        raise ValueError("direct calls take no gateway options (tier, profile, remote…)")
+
+
 def build_args(
     *,
     model: str = "sonnet",
@@ -210,27 +222,19 @@ def build_args(
     explicit remote-mode opt-ins; all default to off so plain calls keep the
     historical argv untouched.
     """
-    if tier is not None and tier not in TIERS:
-        raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
-    if direct and any((tier, remote, base_url, context, provider, profile)):
-        raise ValueError("direct calls take no gateway options (tier, profile, remote…)")
-    gateway: list[str] = []
-    if remote:
-        gateway += ["--remote", remote]
-    if base_url:
-        gateway += ["--base-url", base_url]
-    if context:
-        gateway += ["--context", context]
-    if provider:
-        gateway += ["--provider", provider]
-    resolved_profile = profile or tier
-    if resolved_profile:
-        gateway += ["--profile", resolved_profile]
+    _check_routing(
+        tier, direct, gateway_set=any((tier, remote, base_url, context, provider, profile))
+    )
+    gateway = _flags(
+        ("--remote", remote),
+        ("--base-url", base_url),
+        ("--context", context),
+        ("--provider", provider),
+        ("--profile", profile or tier),
+    )
     prefix = [] if direct else ["omniroute", "run", *gateway]
     args = [*prefix, "claude", *([] if direct else ["--"]), "-p", "--model", model]
-    if effort:
-        args += ["--effort", effort]
-    args += ["--output-format", output_format]
+    args += [*_flags(("--effort", effort)), "--output-format", output_format]
     if output_format == "stream-json":
         # stream-json requires --verbose in -p mode; partial messages keep the
         # stream flowing so a long run doesn't look wedged.
@@ -242,8 +246,7 @@ def build_args(
         args += ["--allowed-tools", allowed_tools or tools]
     if not slash_commands:
         args += ["--disable-slash-commands"]
-    if permission_mode:
-        args += ["--permission-mode", permission_mode]
+    args += _flags(("--permission-mode", permission_mode))
     args += [
         "--setting-sources",
         setting_sources,
