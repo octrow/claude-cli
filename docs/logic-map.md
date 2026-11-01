@@ -132,7 +132,8 @@ Decides: whether an HTTP error ends the call.
 Branches:
 - `auto` + `HttpLlmError` → warning log, `_down_until = now + 600 s` for the whole process (all models, any status incl. 4xx), continue at step 6;
 - any other exception → reaches the caller, no fallback, no cooldown;
-- `api` → `HttpLlmError` reaches the caller with only `HTTP <code> from <url>`; never `UsageLimitError` (#5).
+- `api` + an HTTP status → `HTTP <code>` plus the error body (≤64 KiB, kept in `.stdout`) run through the step 10 classifier: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → gateway error with hint, else `HttpLlmError("HTTP <code> from <url>: <body ≤300>")`;
+- `api` + a transport error → `HttpLlmError`.
 Module: `http_api`
 
 ### 6. Argv
@@ -168,9 +169,10 @@ Module: `runner`
 Decides: when the run is over.
 In: argv, prompt on stdin. Out: returncode, stdout, stderr.
 Branches:
-- `run_claude`: `Popen(start_new_session=True)` + `communicate(timeout)`;
-- `arun_claude`: `create_subprocess_exec` + `wait_for(timeout)`;
-- `stream_claude`: stdout read line by line, each JSON dict line → `on_event`; stderr drained on a thread; a `threading.Timer` kills at `timeout` even when the child prints nothing.
+- the CLI gets what is left of `timeout` after steps 3–5 (one budget per call); nothing left → `ClaudeCliError("claude timed out after Ns")`, no spawn;
+- `run_claude`: `Popen(start_new_session=True)` + `communicate(left)`;
+- `arun_claude`: `create_subprocess_exec` + `wait_for(left)`;
+- `stream_claude`: stdout read line by line, each JSON dict line → `on_event`; stderr drained on a thread; a `threading.Timer` kills at `left` even when the child prints nothing.
 Fails: missing `omniroute`/`claude` binary or a nonexistent `cwd` (any `OSError` from the spawn) → `ClaudeCliError("cannot start <argv0>: …")`. Timeout → SIGKILL to the process group (the real `claude` under `omniroute run` dies too) → `ClaudeCliError("claude timed out after Ns")`, no stdout kept. Ctrl-C, cancellation or a raising `on_event` → kill, then re-raise.
 Module: `runner`
 
@@ -205,7 +207,7 @@ Decides: whether a zero-exit run actually answered.
 Branches:
 - `is_error` true → `ClaudeCliError("claude error: <last 300 chars>")`;
 - `result` missing, empty or not a string → `ClaudeCliError("claude produced no result")`;
-- else `ClaudeResult`; `duration_ms` from the envelope, else wall clock.
+- else `ClaudeResult`; `duration_ms` from the envelope, else wall clock since step 1 (HTTP attempt included).
 Module: `runner`
 
 ### Output
@@ -220,7 +222,7 @@ Module: `runner`, `errors`
 ### Response cache (`cached_run`)
 
 Key: sha256 over model, whitespace-collapsed prompt, and `schema`/`version`/`purpose`/`tools` when set.
-Routing kwargs `tier`, `provider`, `profile`, `remote`, `base_url`, `context` fold into the model part when set; `direct`, `backend`, `effort`, `allowed_tools`, `cwd` do not (#3).
+`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort` fold into the model part when off their default (`None`, `False`, `"medium"`), so old rows keep their keys; `effort=None` folds. `backend`, `allowed_tools`, `cwd` do not.
 Hit → stored text, runner not called. `refresh=True` skips the read. Only `.text` is returned.
 Writes: one row per miss; `prompt` column NULL unless `store_prompt=True`. A write error (`sqlite3.Error`, `OSError`) is logged, not raised; read and `FileCacheStore()` errors propagate.
 `FileCacheStore`: sqlite table `claude_cli_cache`; a new dir gets 0700, a new file 0600 (umask applies; existing ones keep their mode); `max_age_days` makes old rows read as misses, nothing is deleted.
@@ -252,9 +254,6 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- `timeout` is per route: an auto call can spend the HTTP timeout (no hard wall clock there) and then the full CLI timeout (#2).
-- `cached_run` key ignores `direct` and `effort`: a direct Claude answer and a `free-stack` answer share one row (#3).
 - HTTP sends model ids outside `COMBOS` verbatim; the CLI path maps them by glob; the same call can reach different combos (#4, not confirmed).
-- `backend="api"` never raises `UsageLimitError` and drops the error body (#5).
 - `run_chunks` keeps going after `NotLoggedInError` and session-wide limits (#6, question).
 - one rejected request (4xx) turns HTTP off for the whole process for 600 s (#13, question).

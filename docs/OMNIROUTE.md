@@ -170,7 +170,7 @@ use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.prefl
 
 **Откат.** Сбой HTTP (`HttpLlmError`, подкласс `ClaudeCliError`) -> warning -> тот же вызов
 через CLI; HTTP после этого выключен на 600 с на процесс (все модели, любая ошибка, включая
-4xx). `backend="api"` — только HTTP: ошибки летят наружу, cooldown не включается.
+4xx). `backend="api"` — только HTTP: ошибки летят наружу, cooldown не включается; статус и тело ошибки шлюза проходят тот же классификатор, что и у CLI (429 → `UsageLimitError`, `ALL_TARGETS_SKIPPED` → ошибка шлюза). `timeout` — один бюджет на вызов: после неудачного HTTP CLI получает только остаток.
 
 **Отключение.** kwarg `backend="auto"|"cli"|"api"`; env `CLAUDE_CLI_BACKEND` перекрывает kwarg, кроме явного `backend="cli"` (на нём стоит `ping`).
 Тесты ставят `cli` autouse-фикстурой в `tests/conftest.py`: живых вызовов шлюза в тестах нет.

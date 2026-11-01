@@ -130,7 +130,8 @@ Module: `http_api`
 Ветки:
 - `auto` + `HttpLlmError` → warning в лог, `_down_until = now + 600 с` на весь процесс (все модели, любой статус, включая 4xx), дальше шаг 6;
 - любое другое исключение → доходит до вызывающего, без отката и cooldown;
-- `api` → `HttpLlmError` доходит до вызывающего только с `HTTP <code> from <url>`; `UsageLimitError` не бывает (#5).
+- `api` + HTTP-статус → `HTTP <code>` и тело ошибки (≤64 KiB, лежит в `.stdout`) проходят классификатор шага 10: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → ошибка шлюза с подсказкой, иначе `HttpLlmError("HTTP <code> from <url>: <тело ≤300>")`;
+- `api` + транспортная ошибка → `HttpLlmError`.
 Module: `http_api`
 
 ### 6. Argv
@@ -166,9 +167,10 @@ Module: `runner`
 Решает: когда прогон закончен.
 Вход: argv, промпт в stdin. Выход: returncode, stdout, stderr.
 Ветки:
-- `run_claude`: `Popen(start_new_session=True)` + `communicate(timeout)`;
-- `arun_claude`: `create_subprocess_exec` + `wait_for(timeout)`;
-- `stream_claude`: stdout читается построчно, каждая JSON-строка-dict → `on_event`; stderr сливается в потоке; `threading.Timer` убивает по `timeout`, даже если процесс молчит.
+- CLI получает остаток `timeout` после шагов 3–5 (один бюджет на вызов); остатка нет → `ClaudeCliError("claude timed out after Ns")`, процесс не запускается;
+- `run_claude`: `Popen(start_new_session=True)` + `communicate(остаток)`;
+- `arun_claude`: `create_subprocess_exec` + `wait_for(остаток)`;
+- `stream_claude`: stdout читается построчно, каждая JSON-строка-dict → `on_event`; stderr сливается в потоке; `threading.Timer` убивает по остатку, даже если процесс молчит.
 Сбой: нет бинарника `omniroute`/`claude` или нет каталога `cwd` (любой `OSError` при запуске) → `ClaudeCliError("cannot start <argv0>: …")`. Таймаут → SIGKILL группе процессов (настоящий `claude` под `omniroute run` тоже умирает) → `ClaudeCliError("claude timed out after Ns")`, stdout не сохраняется. Ctrl-C, отмена или исключение в `on_event` → kill, затем исключение дальше.
 Module: `runner`
 
@@ -203,7 +205,7 @@ Module: `runner`, `parsing`, `errors`
 Ветки:
 - `is_error` истинно → `ClaudeCliError("claude error: <последние 300 символов>")`;
 - `result` нет, пустой или не строка → `ClaudeCliError("claude produced no result")`;
-- иначе `ClaudeResult`; `duration_ms` из конверта, иначе по часам.
+- иначе `ClaudeResult`; `duration_ms` из конверта, иначе по часам с шага 1 (вместе с попыткой HTTP).
 Module: `runner`
 
 ### Выход
@@ -218,7 +220,7 @@ Module: `runner`, `errors`
 ### Кэш ответов (`cached_run`)
 
 Ключ: sha256 по модели, промпту со схлопнутыми пробелами и `schema`/`version`/`purpose`/`tools`, если заданы.
-Routing-kwargs `tier`, `provider`, `profile`, `remote`, `base_url`, `context` входят в часть модели, если заданы; `direct`, `backend`, `effort`, `allowed_tools`, `cwd` — нет (#3).
+`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort` входят в часть модели, если отличаются от умолчания (`None`, `False`, `"medium"`), так что старые строки сохраняют ключи; `effort=None` входит. `backend`, `allowed_tools`, `cwd` — нет.
 Попадание → сохранённый текст, runner не вызывается. `refresh=True` пропускает чтение. Возвращается только `.text`.
 Запись: одна строка на промах; колонка `prompt` NULL, если не `store_prompt=True`. Ошибка записи (`sqlite3.Error`, `OSError`) в лог, не наружу; ошибки чтения и `FileCacheStore()` летят наружу.
 `FileCacheStore`: sqlite-таблица `claude_cli_cache`; новый каталог 0700, новый файл 0600 (umask действует; существующие сохраняют права); `max_age_days` делает старые строки промахами, ничего не удаляется.
@@ -250,9 +252,6 @@ Module: `parsing`
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- `timeout` действует на маршрут: auto-вызов может потратить таймаут HTTP (жёсткого предела там нет) и потом полный таймаут CLI (#2).
-- ключ `cached_run` не учитывает `direct` и `effort`: ответ настоящего Claude и ответ `free-stack` делят одну строку (#3).
 - HTTP шлёт id моделей вне `COMBOS` как есть, CLI маппит их по glob; один вызов может попасть в разные комбо (#4, не подтверждено).
-- `backend="api"` никогда не бросает `UsageLimitError` и теряет тело ошибки (#5).
 - `run_chunks` продолжает после `NotLoggedInError` и лимитов на всю сессию (#6, вопрос).
 - один отклонённый запрос (4xx) выключает HTTP на весь процесс на 600 с (#13, вопрос).

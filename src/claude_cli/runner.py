@@ -286,6 +286,18 @@ def _spawn_failed(args: list[str], exc: OSError) -> ClaudeCliError:
     return ClaudeCliError(f"cannot start {args[0]}: {exc}")
 
 
+def _cli_budget(timeout: int, started: float) -> float:
+    """What the CLI may still spend of the caller's ``timeout`` after the HTTP attempt.
+
+    One budget per call: an auto call whose HTTP attempt stalled must not then get a
+    fresh full timeout on the CLI. Nothing left → the call has already timed out.
+    """
+    left = timeout - (time.monotonic() - started)
+    if left <= 0:
+        raise ClaudeCliError(f"claude timed out after {timeout}s")
+    return left
+
+
 def _write_empty_mcp(work_dir: str) -> str:
     path = Path(work_dir) / "mcp-empty.json"
     path.write_text(_EMPTY_MCP, encoding="utf-8")
@@ -527,6 +539,7 @@ def run_claude(
         direct=direct,
     )
     argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
+    started = time.monotonic()  # the HTTP attempt and the CLI share one timeout
     if (
         not direct
         and (
@@ -556,7 +569,7 @@ def run_claude(
         tier,
         " direct" if direct else "",
     )
-    started = time.monotonic()
+    budget = _cli_budget(timeout, started)
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = argv(mcp_config=_write_empty_mcp(work))
         # Popen, not subprocess.run: run's timeout kills only the direct child, which
@@ -575,7 +588,7 @@ def run_claude(
         except OSError as exc:
             raise _spawn_failed(args, exc) from exc
         try:
-            stdout, stderr = proc.communicate(prompt, timeout=timeout)
+            stdout, stderr = proc.communicate(prompt, timeout=budget)
         except subprocess.TimeoutExpired as exc:
             _kill_tree(proc)
             proc.communicate()
@@ -643,6 +656,7 @@ def stream_claude(
         profile=profile,
     )
     argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
+    started = time.monotonic()  # the HTTP attempt and the CLI share one timeout
     if (
         res := _http_first(
             prompt,
@@ -667,7 +681,7 @@ def stream_claude(
         cwd or "(temp)",
         tier,
     )
-    started = time.monotonic()
+    budget = _cli_budget(timeout, started)
     deadline = started + timeout
     lines: list[str] = []
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
@@ -692,7 +706,7 @@ def stream_claude(
             timed_out.set()
             _kill_tree(proc)
 
-        watchdog = threading.Timer(timeout, _expire)
+        watchdog = threading.Timer(budget, _expire)
         watchdog.daemon = True
         watchdog.start()
         try:
@@ -806,6 +820,7 @@ async def arun_claude(
         profile=profile,
     )
     argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
+    started = time.monotonic()  # the HTTP attempt and the CLI share one timeout
     if (
         res := await asyncio.to_thread(
             _http_first,
@@ -831,7 +846,7 @@ async def arun_claude(
         cwd or "(temp)",
         tier,
     )
-    started = time.monotonic()
+    budget = _cli_budget(timeout, started)
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = argv(mcp_config=_write_empty_mcp(work))
         try:
@@ -848,7 +863,7 @@ async def arun_claude(
             raise _spawn_failed(args, exc) from exc
         try:
             out, err = await asyncio.wait_for(
-                proc.communicate(prompt.encode("utf-8")), timeout=timeout
+                proc.communicate(prompt.encode("utf-8")), timeout=budget
             )
         except TimeoutError as exc:
             _kill_tree(proc)

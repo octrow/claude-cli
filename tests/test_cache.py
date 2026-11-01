@@ -190,3 +190,25 @@ def test_file_store_creates_private_db_and_dir(tmp_path):
     store.put("k", "secret answer")
     assert path.stat().st_mode & 0o777 == 0o600
     assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_cached_run_direct_does_not_share_a_row_with_the_gateway():
+    store, calls = DictCacheStore(), []
+    cached_run(_runner(text="free-stack", calls=calls), store, "p")
+    assert cached_run(_runner(text="claude", calls=calls), store, "p", direct=True) == "claude"
+    assert len(calls) == 2
+
+
+def test_cached_run_splits_key_by_non_default_effort():
+    store, calls = DictCacheStore(), []
+    cached_run(_runner(text="medium", calls=calls), store, "p")
+    assert cached_run(_runner(calls=calls), store, "p", effort="medium") == "medium"  # default
+    assert cached_run(_runner(text="high", calls=calls), store, "p", effort="high") == "high"
+    assert cached_run(_runner(text="none", calls=calls), store, "p", effort=None) == "none"
+    assert len(calls) == 3
+
+
+def test_cached_run_default_kwargs_keep_existing_keys():
+    store = DictCacheStore()
+    cached_run(_runner(), store, "p", direct=False, effort="medium", backend="cli")
+    assert cache_key("sonnet", "p") in store.rows

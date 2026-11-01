@@ -18,7 +18,8 @@ import urllib.request
 from pathlib import Path
 
 from .errors import ClaudeCliError
-from .runner import ClaudeResult
+from .parsing import clean_cli_text
+from .runner import ClaudeResult, _raise_classified
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ COOLDOWN_SECS = 600
 ENV_FILE = Path.home() / ".omniroute" / ".env"
 DEFAULT_URL = "http://localhost:20128"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024  # a chat completion is KBs; a bigger body is a broken gateway
+MAX_ERROR_BODY_BYTES = 64 * 1024  # enough for the gateway's error JSON, never a whole page
 _CHUNK = 64 * 1024
 
 _down_until = (
@@ -37,7 +39,22 @@ _down_until = (
 
 
 class HttpLlmError(ClaudeCliError):
-    """The HTTP route failed (transport, status, body); run_claude falls back to the CLI."""
+    """The HTTP route failed (transport, status, body); run_claude falls back to the CLI.
+
+    ``status`` is the HTTP status when the gateway answered, else None; ``stdout`` holds
+    the error body (capped) so a failed call can be classified and archived like a CLI run.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None, stdout: str = "") -> None:
+        super().__init__(message, stdout=stdout)
+        self.status = status
+
+
+def _error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read(MAX_ERROR_BODY_BYTES).decode("utf-8", "replace")
+    except OSError:  # the connection dropped mid-body: the status alone still tells a lot
+        return ""
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -132,7 +149,13 @@ def omniroute_chat(
             data = json.loads(_read_capped(resp, t0 + timeout))
         text = data["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as exc:  # 401 key, 422 body, 429/503 busy
-        raise HttpLlmError(f"HTTP {exc.code} from {url}") from exc
+        body = _error_body(exc)
+        detail = clean_cli_text(body).strip()[:300]
+        raise HttpLlmError(
+            f"HTTP {exc.code} from {url}" + (f": {detail}" if detail else ""),
+            status=exc.code,
+            stdout=body,
+        ) from exc
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise HttpLlmError(f"{type(exc).__name__}: {exc}") from exc
     if not isinstance(text, str) or not text.strip():
@@ -151,6 +174,20 @@ def omniroute_chat(
     )
 
 
+def _raise_status_error(exc: HttpLlmError) -> None:
+    """For ``backend="api"``: raise what the CLI path would for the same failure, if anything.
+
+    The gateway's status plus error body go through the CLI's classifier, so a 429 is a
+    :class:`UsageLimitError` (``session_wide=False``: one upstream of a combo) and
+    ``ALL_TARGETS_SKIPPED`` is a gateway error with its hint. Returns when nothing matches,
+    or when there was no HTTP answer at all (transport error).
+    """
+    if exc.status is None:
+        return
+    combined = clean_cli_text(f"HTTP {exc.status}\n{exc.stdout}")
+    _raise_classified(combined, str(exc), exc.stdout, tier=None, via_gateway=True)
+
+
 def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult | None:
     """The HTTP answer, or None when run_claude should use the CLI.
 
@@ -165,7 +202,11 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
     if backend == "cli" or cli_only:
         return None
     if backend == "api":
-        return omniroute_chat(prompt, **kw)
+        try:
+            return omniroute_chat(prompt, **kw)
+        except HttpLlmError as exc:
+            _raise_status_error(exc)
+            raise
     if time.monotonic() < _down_until or not api_key():
         return None
     try:

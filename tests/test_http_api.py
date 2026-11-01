@@ -293,3 +293,92 @@ def test_bad_kwargs_refused_before_http(auto, http, cli, entry, kw):
     with pytest.raises(ValueError):
         ENTRIES[entry]("p", **kw)
     assert not http.calls and not cli
+
+
+# --- one timeout budget per call (#2) ------------------------------------------
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """A fake monotonic clock the HTTP fake can advance."""
+    now = [1000.0]
+    monkeypatch.setattr(runner_mod.time, "monotonic", lambda: now[0])
+    return now
+
+
+def _slow_failing_http(monkeypatch, clock, spent):
+    def urlopen(req, timeout):
+        clock[0] += spent
+        raise urllib.error.URLError("stalled")
+
+    monkeypatch.setattr(http_api._OPENER, "open", urlopen)
+
+
+def _recording_popen(monkeypatch):
+    timeouts = []
+
+    class _Popen:
+        pid, returncode = 1, 0
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def communicate(self, _input=None, timeout=None):
+            timeouts.append(timeout)
+            return json.dumps({"is_error": False, "result": "ok"}), ""
+
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", _Popen)
+    return timeouts
+
+
+def test_cli_fallback_gets_only_the_remaining_timeout(auto, monkeypatch, clock):
+    _slow_failing_http(monkeypatch, clock, spent=250)
+    timeouts = _recording_popen(monkeypatch)
+    assert run_claude("p", timeout=300).text == "ok"
+    assert timeouts == [50]
+
+
+def test_http_spending_the_whole_budget_times_out_without_spawning(auto, monkeypatch, clock):
+    _slow_failing_http(monkeypatch, clock, spent=400)
+    timeouts = _recording_popen(monkeypatch)
+    with pytest.raises(runner_mod.ClaudeCliError, match="timed out after 300s"):
+        run_claude("p", timeout=300)
+    assert timeouts == []
+
+
+# --- backend="api" errors go through the same classifier (#5) ------------------
+
+
+def _fail_with(monkeypatch, code, body):
+    def urlopen(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, code, "err", {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(http_api._OPENER, "open", urlopen)
+
+
+def test_api_429_is_a_usage_limit(auto, monkeypatch, cli):
+    _fail_with(monkeypatch, 429, '{"error":"slow down"}')
+    with pytest.raises(runner_mod.UsageLimitError) as info:
+        run_claude("p", backend="api")
+    assert info.value.session_wide is False  # one upstream of a combo, not the session
+    assert not cli
+
+
+def test_api_targets_skipped_is_a_gateway_error(auto, monkeypatch, cli):
+    _fail_with(monkeypatch, 503, '{"error":{"code":"ALL_TARGETS_SKIPPED"}}')
+    with pytest.raises(runner_mod.ClaudeCliError, match="omniroute gateway error") as info:
+        run_claude("p", backend="api")
+    assert not isinstance(info.value, runner_mod.UsageLimitError)
+    assert "ALL_TARGETS_SKIPPED" in info.value.stdout
+
+
+def test_api_other_status_keeps_the_body(auto, monkeypatch, cli):
+    _fail_with(monkeypatch, 422, '{"error":"bad model id"}')
+    with pytest.raises(HttpLlmError, match="bad model id"):
+        run_claude("p", backend="api")
+
+
+def test_auto_429_still_falls_back_to_cli(auto, monkeypatch, cli):
+    _fail_with(monkeypatch, 429, '{"error":"slow down"}')
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p")

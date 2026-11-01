@@ -159,8 +159,19 @@ class DictCacheStore:
         self.meta[key] = meta
 
 
-#: run_claude kwargs that change which upstream answers (profile/config dir, provider, remote...).
-_ROUTING_KWARGS = ("tier", "provider", "profile", "remote", "base_url", "context")
+#: run_claude kwargs that change who answers (upstream, config dir, local login) or how hard it
+#: thinks, each with the value that leaves the key as it was before the kwarg was folded in.
+#: ponytail: `backend` is left out: HTTP and CLI reach the same combo (logic-map finding #4).
+_KEY_KWARGS = {
+    "tier": None,
+    "provider": None,
+    "profile": None,
+    "remote": None,
+    "base_url": None,
+    "context": None,
+    "direct": False,
+    "effort": "medium",
+}
 
 
 def cached_run(
@@ -186,9 +197,13 @@ def cached_run(
     default only the sha256 key touches disk and the ``prompt`` column stays NULL.
     Callers needing hit/miss visibility use ``store.get``/``store.put`` directly.
     """
-    # Routing kwargs pick a different upstream model, so they must split the key;
-    # folded into the model part only when set, so existing rows stay valid.
-    routing = ",".join(f"{k}={kwargs[k]}" for k in _ROUTING_KWARGS if kwargs.get(k))
+    # These kwargs change the answer, so they must split the key; folded into the model
+    # part only when off their default, so existing rows stay valid.
+    routing = ",".join(
+        f"{k}={kwargs[k]}"
+        for k, default in _KEY_KWARGS.items()
+        if k in kwargs and kwargs[k] not in (default, "")
+    )
     key = cache_key(
         f"{model}|{routing}" if routing else model,
         prompt,

@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 - `ping` always goes through the CLI: `CLAUDE_CLI_BACKEND` no longer overrides an explicit `backend="cli"`, so `ping` can't report "pong" over HTTP without starting `claude`.
 - Bad kwargs (unknown `tier`, a value starting with `-`) raise `ValueError` before the HTTP route too, not only when the call falls back to the CLI.
 - A missing `omniroute`/`claude` binary or `cwd` raises `ClaudeCliError` instead of a bare `FileNotFoundError`.
+- `timeout` is one budget per call: after a failed HTTP attempt the CLI gets only what is left, so `timeout=300` no longer stretches to ~900 s.
+- `cached_run` splits the key by `direct=True` and a non-default `effort`, so a direct Claude answer and a gateway `free-stack` answer no longer share a row. Existing keys are unchanged.
+- `backend="api"`: an HTTP error keeps its body and goes through the CLI's classifier, so a 429 raises `UsageLimitError` and `ALL_TARGETS_SKIPPED` a gateway error.
 
 ## [0.1.6] - 2026-11-01
 
