@@ -9,7 +9,7 @@ import urllib.error
 
 import pytest
 
-from claude_cli import arun_claude, cached_run, http_api, run_claude, stream_claude
+from claude_cli import arun_claude, cached_run, http_api, ping, run_claude, stream_claude
 from claude_cli import runner as runner_mod
 from claude_cli.cache import DictCacheStore
 from claude_cli.http_api import HttpLlmError, omniroute_chat
@@ -264,3 +264,32 @@ def test_dotenv_export_prefix_and_binary_file(monkeypatch, tmp_path):
     assert http_api.api_key() == "k1"
     env.write_bytes(b"\xff\xfe\x00garbage")
     assert http_api.api_key() is None  # unreadable file: route off, never a crash
+
+
+def test_explicit_cli_kwarg_beats_env(auto, monkeypatch, http, cli):
+    monkeypatch.setenv("CLAUDE_CLI_BACKEND", "api")
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p", backend="cli")
+    assert not http.calls
+
+
+def test_ping_never_answers_over_http(auto, monkeypatch, http, cli):
+    monkeypatch.setenv("CLAUDE_CLI_BACKEND", "api")
+    ok, message = ping()
+    assert not ok and "cli reached" in message  # it went for the CLI
+    assert not http.calls
+
+
+ENTRIES = {
+    "run": lambda p, **kw: run_claude(p, **kw),
+    "arun": lambda p, **kw: asyncio.run(arun_claude(p, **kw)),
+    "stream": lambda p, **kw: stream_claude(p, lambda _e: None, **kw),
+}
+
+
+@pytest.mark.parametrize("entry", ENTRIES)
+@pytest.mark.parametrize("kw", [{"tier": "bogus"}, {"model": "-x"}, {"effort": "--bare"}])
+def test_bad_kwargs_refused_before_http(auto, http, cli, entry, kw):
+    with pytest.raises(ValueError):
+        ENTRIES[entry]("p", **kw)
+    assert not http.calls and not cli

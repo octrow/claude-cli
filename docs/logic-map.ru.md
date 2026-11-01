@@ -64,7 +64,7 @@ Module: `runner`, `http_api`
 | `run_claude` | `auto` | есть | `json` (kwarg) | блокирующий; единственный вход с `direct` |
 | `arun_claude` | `auto` | **нет** | `json` (kwarg) | HTTP-шаг в `asyncio.to_thread`; CLI через `asyncio.create_subprocess_exec` |
 | `stream_claude` | `auto` | **нет** | всегда `stream-json` | шагу 2 передаётся `json`, поэтому поток без инструментов идёт по HTTP и событий не шлёт |
-| `ping` | kwarg `cli` | нет | `json` | `model="haiku"`, `timeout=90`, промпт "reply with the single word pong"; не бросает; env `CLAUDE_CLI_BACKEND` всё равно перекрывает его `cli` (#1) |
+| `ping` | kwarg `cli` | нет | `json` | `model="haiku"`, `timeout=90`, промпт "reply with the single word pong"; не бросает; всегда CLI (env не перекрывает явный `cli`) |
 | `ClaudeCliProvider.ask` | `auto` | через `**kwargs` | `json` | `DEFAULT_MODEL="sonnet"`, `DEFAULT_TIMEOUT=300`; возвращает только `.text` |
 | `cached_run(runner, store, …)` | как у runner | как у runner | как у runner | свой `model="sonnet"` по умолчанию, передаётся всегда; см. боковые потоки |
 
@@ -80,9 +80,10 @@ Module: `runner`, `cache`
 Решает: используется ли OmniRoute вообще.
 Вход: kwarg `direct`.
 Ветки:
+- сначала kwargs проверяются проверками шага 6, до выбора маршрута;
 - `direct=True` (только `run_claude`) → шаги 2–5 пропущены, шаг 6 без префикса шлюза;
 - иначе → шаг 2.
-Сбой: нет.
+Сбой: плохие kwargs → `ValueError` (см. шаг 6), ничего не отправляется.
 Module: `runner`
 
 ### 2. Проверка CLI-only
@@ -102,7 +103,7 @@ Module: `runner`
 Решает: пробовать HTTP сейчас или идти в CLI.
 Вход: kwarg `backend`, env `CLAUDE_CLI_BACKEND`, `cli_only`, cooldown, ключ.
 Ветки:
-- непустой env `CLAUDE_CLI_BACKEND` заменяет kwarg (и для `ping` тоже);
+- непустой env `CLAUDE_CLI_BACKEND` заменяет kwarg, если kwarg не `cli`;
 - `cli` или `cli_only` → CLI (проверяется раньше `api`, поэтому `api` + tools всё равно запускает CLI);
 - `api` → шаг 4, ошибки летят наружу;
 - любое другое значение (`auto`, `CLI`, `http` …) работает как `auto`: шаг 4, только если cooldown процесса прошёл и `api_key()` нашёл ключ.
@@ -146,7 +147,7 @@ Module: `http_api`
 - `--disable-slash-commands`, если не `slash_commands`; `--permission-mode`, если задан;
 - всегда `--setting-sources <setting_sources> --strict-mcp-config --mcp-config <пустой файл>`.
 `--bare` не добавляется никогда. `tier`/`profile` выбирают только `CLAUDE_CONFIG_DIR` внутри шлюза, не комбо.
-Сбой: `ValueError` до запуска процесса. Проверка стоит здесь, после шагов 3–5: по HTTP плохой `tier` или `model` с `-` проходит (#11).
+Сбой: `ValueError`. Точки входа запускают эти проверки на шаге 1, так что плохой kwarg падает на любом маршруте.
 Module: `runner`, `preflight`
 
 ### 7. Песочница
@@ -168,7 +169,7 @@ Module: `runner`
 - `run_claude`: `Popen(start_new_session=True)` + `communicate(timeout)`;
 - `arun_claude`: `create_subprocess_exec` + `wait_for(timeout)`;
 - `stream_claude`: stdout читается построчно, каждая JSON-строка-dict → `on_event`; stderr сливается в потоке; `threading.Timer` убивает по `timeout`, даже если процесс молчит.
-Сбой: нет бинарника `omniroute`/`claude` или нет каталога `cwd` → голый `FileNotFoundError`, не `ClaudeCliError` (#12). Таймаут → SIGKILL группе процессов (настоящий `claude` под `omniroute run` тоже умирает) → `ClaudeCliError("claude timed out after Ns")`, stdout не сохраняется. Ctrl-C, отмена или исключение в `on_event` → kill, затем исключение дальше.
+Сбой: нет бинарника `omniroute`/`claude` или нет каталога `cwd` (любой `OSError` при запуске) → `ClaudeCliError("cannot start <argv0>: …")`. Таймаут → SIGKILL группе процессов (настоящий `claude` под `omniroute run` тоже умирает) → `ClaudeCliError("claude timed out after Ns")`, stdout не сохраняется. Ctrl-C, отмена или исключение в `on_event` → kill, затем исключение дальше.
 Module: `runner`
 
 ### 9. Разбор вывода
@@ -208,7 +209,7 @@ Module: `runner`
 ### Выход
 
 `ClaudeResult`: `text`, `cost_usd` (`total_cost_usd` конверта; `0.0` по HTTP), `duration_ms`, `raw` (конверт или тело OpenAI), `stdout` (сырой вывод CLI; `""` по HTTP), `tier` (эхо kwarg; `None` по HTTP).
-Ошибки: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; все — `RuntimeError`. Вне семейства: `ValueError` на плохие kwargs, `FileNotFoundError` при запуске (#12).
+Ошибки: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; все — `RuntimeError`. Вне семейства: `ValueError` на плохие kwargs.
 Какой маршрут ответил, не записывается; HTTP отличает только `stdout == ""`.
 Module: `runner`, `errors`
 
@@ -231,7 +232,7 @@ Module: `batch`
 
 ### Проверка здоровья (`ping`)
 
-`run_claude` с `backend="cli"`; возвращает `(True, "pong via omniroute, Ns")` или `(False, <очищенная ошибка ≤200 символов>)`.
+`run_claude` с `backend="cli"`, который env не перекрывает; возвращает `(True, "pong via omniroute, Ns")` или `(False, <очищенная ошибка ≤200 символов>)`.
 Module: `runner`
 
 ### Preflight (`health`, `doctor`, `quota_status`, `simulate`, `dry_run_plan`)
@@ -249,12 +250,9 @@ Module: `parsing`
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- `CLAUDE_CLI_BACKEND` перекрывает `backend="cli"` у `ping`: `ping` может пройти по HTTP, не запустив `claude` (#1).
 - `timeout` действует на маршрут: auto-вызов может потратить таймаут HTTP (жёсткого предела там нет) и потом полный таймаут CLI (#2).
 - ключ `cached_run` не учитывает `direct` и `effort`: ответ настоящего Claude и ответ `free-stack` делят одну строку (#3).
 - HTTP шлёт id моделей вне `COMBOS` как есть, CLI маппит их по glob; один вызов может попасть в разные комбо (#4, не подтверждено).
 - `backend="api"` никогда не бросает `UsageLimitError` и теряет тело ошибки (#5).
 - `run_chunks` продолжает после `NotLoggedInError` и лимитов на всю сессию (#6, вопрос).
-- проверка kwargs идёт после попытки HTTP: плохой `tier` или `model` падает только в дни CLI (#11).
-- нет бинарника или `cwd` → `FileNotFoundError`, вне контракта `RuntimeError` (#12).
 - один отклонённый запрос (4xx) выключает HTTP на весь процесс на 600 с (#13, вопрос).

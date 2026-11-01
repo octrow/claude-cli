@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `ping` always goes through the CLI: `CLAUDE_CLI_BACKEND` no longer overrides an explicit `backend="cli"`, so `ping` can't report "pong" over HTTP without starting `claude`.
+- Bad kwargs (unknown `tier`, a value starting with `-`) raise `ValueError` before the HTTP route too, not only when the call falls back to the CLI.
+- A missing `omniroute`/`claude` binary or `cwd` raises `ClaudeCliError` instead of a bare `FileNotFoundError`.
+
 ## [0.1.6] - 2026-11-01
 
 ### Security

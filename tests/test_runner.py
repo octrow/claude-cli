@@ -916,3 +916,32 @@ def test_build_args_unknown_tier_raises():
 def test_build_args_refuses_values_that_look_like_flags(kw):
     with pytest.raises(ValueError, match="flag"):
         build_args(mcp_config="/tmp/mcp.json", **kw)
+
+
+# --- spawn failures stay inside the ClaudeCliError family --------------------
+
+
+def _missing_binary(*_args, **_kwargs):
+    raise FileNotFoundError(2, "No such file or directory", "omniroute")
+
+
+def test_spawn_failure_is_cli_error(monkeypatch):
+    monkeypatch.setattr(subprocess, "Popen", _missing_binary)
+    with pytest.raises(ClaudeCliError, match="omniroute"):
+        run_claude("p")
+    with pytest.raises(ClaudeCliError, match="omniroute"):
+        stream_claude("p", lambda _e: None)
+
+
+async def test_async_spawn_failure_is_cli_error(monkeypatch):
+    async def _exec(*args, **kwargs):
+        _missing_binary()
+
+    monkeypatch.setattr(runner_mod.asyncio, "create_subprocess_exec", _exec)
+    with pytest.raises(ClaudeCliError, match="omniroute"):
+        await arun_claude("p")
+
+
+def test_missing_cwd_is_cli_error(tmp_path):
+    with pytest.raises(ClaudeCliError, match="no-such-dir"):
+        run_claude("p", cwd=tmp_path / "no-such-dir", direct=True)

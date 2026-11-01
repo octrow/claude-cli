@@ -47,6 +47,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -280,6 +281,11 @@ def build_args(
     return args
 
 
+def _spawn_failed(args: list[str], exc: OSError) -> ClaudeCliError:
+    """A missing binary or cwd stays inside the ``RuntimeError`` contract callers degrade on."""
+    return ClaudeCliError(f"cannot start {args[0]}: {exc}")
+
+
 def _write_empty_mcp(work_dir: str) -> str:
     path = Path(work_dir) / "mcp-empty.json"
     path.write_text(_EMPTY_MCP, encoding="utf-8")
@@ -486,7 +492,7 @@ def run_claude(
 
     ``backend``: "auto" tries the OmniRoute HTTP API first for tool-less calls and falls
     back to the CLI; "cli" never uses HTTP; "api" only HTTP (see :mod:`.http_api`).
-    ``CLAUDE_CLI_BACKEND`` in the env overrides it.
+    ``CLAUDE_CLI_BACKEND`` in the env overrides it, except an explicit ``backend="cli"``.
 
     ``cwd`` runs inside a real project (its ``CLAUDE.md`` is discovered) instead of
     the throwaway dir; pair it with ``slash_commands=True`` and
@@ -499,8 +505,28 @@ def run_claude(
     ``provider`` are explicit remote-mode overrides, all off by default.
 
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
-    :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
+    :class:`ClaudeCliError` — all ``RuntimeError`` subclasses (a missing binary or
+    ``cwd`` too). Bad kwargs raise ``ValueError`` before any route is tried.
     """
+    argv = partial(
+        build_args,
+        model=model,
+        effort=effort,
+        output_format=output_format,
+        tools=tools,
+        allowed_tools=allowed_tools,
+        slash_commands=slash_commands,
+        setting_sources=setting_sources,
+        permission_mode=permission_mode,
+        tier=tier,
+        remote=remote,
+        base_url=base_url,
+        context=context,
+        provider=provider,
+        profile=profile,
+        direct=direct,
+    )
+    argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
     if (
         not direct
         and (
@@ -532,36 +558,22 @@ def run_claude(
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
-        args = build_args(
-            model=model,
-            effort=effort,
-            output_format=output_format,
-            tools=tools,
-            allowed_tools=allowed_tools,
-            mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands,
-            setting_sources=setting_sources,
-            permission_mode=permission_mode,
-            tier=tier,
-            remote=remote,
-            base_url=base_url,
-            context=context,
-            provider=provider,
-            profile=profile,
-            direct=direct,
-        )
+        args = argv(mcp_config=_write_empty_mcp(work))
         # Popen, not subprocess.run: run's timeout kills only the direct child, which
         # orphans the real `claude` under `omniroute run` (see _kill_tree).
-        proc = subprocess.Popen(
-            args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=str(cwd) if cwd else work,
-            text=True,
-            start_new_session=True,
-            env=_child_env(direct),
-        )
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=str(cwd) if cwd else work,
+                text=True,
+                start_new_session=True,
+                env=_child_env(direct),
+            )
+        except OSError as exc:
+            raise _spawn_failed(args, exc) from exc
         try:
             stdout, stderr = proc.communicate(prompt, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
@@ -613,6 +625,24 @@ def stream_claude(
     ``backend`` as in :func:`run_claude`: a tool-less call goes to the OmniRoute HTTP API
     first, and then ``on_event`` sees no events at all (the answer arrives whole).
     """
+    argv = partial(
+        build_args,
+        model=model,
+        effort=effort,
+        output_format="stream-json",
+        tools=tools,
+        allowed_tools=allowed_tools,
+        slash_commands=slash_commands,
+        setting_sources=setting_sources,
+        permission_mode=permission_mode,
+        tier=tier,
+        remote=remote,
+        base_url=base_url,
+        context=context,
+        provider=provider,
+        profile=profile,
+    )
+    argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
     if (
         res := _http_first(
             prompt,
@@ -641,33 +671,20 @@ def stream_claude(
     deadline = started + timeout
     lines: list[str] = []
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
-        args = build_args(
-            model=model,
-            effort=effort,
-            output_format="stream-json",
-            tools=tools,
-            allowed_tools=allowed_tools,
-            mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands,
-            setting_sources=setting_sources,
-            permission_mode=permission_mode,
-            tier=tier,
-            remote=remote,
-            base_url=base_url,
-            context=context,
-            provider=provider,
-            profile=profile,
-        )
-        proc = subprocess.Popen(
-            args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=str(cwd) if cwd else work,
-            start_new_session=True,
-            env=_child_env(),
-        )
+        args = argv(mcp_config=_write_empty_mcp(work))
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=str(cwd) if cwd else work,
+                start_new_session=True,
+                env=_child_env(),
+            )
+        except OSError as exc:
+            raise _spawn_failed(args, exc) from exc
         # The per-line deadline check alone never fires on a child that prints nothing.
         timed_out = threading.Event()
 
@@ -771,6 +788,24 @@ async def arun_claude(
     backend: str = "auto",
 ) -> ClaudeResult:
     """:func:`run_claude` on asyncio — same flags, same errors."""
+    argv = partial(
+        build_args,
+        model=model,
+        effort=effort,
+        output_format=output_format,
+        tools=tools,
+        allowed_tools=allowed_tools,
+        slash_commands=slash_commands,
+        setting_sources=setting_sources,
+        permission_mode=permission_mode,
+        tier=tier,
+        remote=remote,
+        base_url=base_url,
+        context=context,
+        provider=provider,
+        profile=profile,
+    )
+    argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
     if (
         res := await asyncio.to_thread(
             _http_first,
@@ -798,32 +833,19 @@ async def arun_claude(
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
-        args = build_args(
-            model=model,
-            effort=effort,
-            output_format=output_format,
-            tools=tools,
-            allowed_tools=allowed_tools,
-            mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands,
-            setting_sources=setting_sources,
-            permission_mode=permission_mode,
-            tier=tier,
-            remote=remote,
-            base_url=base_url,
-            context=context,
-            provider=provider,
-            profile=profile,
-        )
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd) if cwd else work,
-            start_new_session=True,
-            env=_child_env(),
-        )
+        args = argv(mcp_config=_write_empty_mcp(work))
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd) if cwd else work,
+                start_new_session=True,
+                env=_child_env(),
+            )
+        except OSError as exc:
+            raise _spawn_failed(args, exc) from exc
         try:
             out, err = await asyncio.wait_for(
                 proc.communicate(prompt.encode("utf-8")), timeout=timeout

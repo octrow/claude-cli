@@ -172,7 +172,7 @@ use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.prefl
 через CLI; HTTP после этого выключен на 600 с на процесс (все модели, любая ошибка, включая
 4xx). `backend="api"` — только HTTP: ошибки летят наружу, cooldown не включается.
 
-**Отключение.** kwarg `backend="auto"|"cli"|"api"`; env `CLAUDE_CLI_BACKEND` перекрывает kwarg.
+**Отключение.** kwarg `backend="auto"|"cli"|"api"`; env `CLAUDE_CLI_BACKEND` перекрывает kwarg, кроме явного `backend="cli"` (на нём стоит `ping`).
 Тесты ставят `cli` autouse-фикстурой в `tests/conftest.py`: живых вызовов шлюза в тестах нет.
 
 **Модели.** `haiku`/`sonnet` -> `free-stack`, `opus` -> `hard` (`COMBOS` в `http_api.py`);

@@ -156,9 +156,12 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
 
     ``backend``: "cli" never, "api" always (errors propagate, no cooldown), "auto" when
     a key exists, the gateway is not cooling down and the call needs nothing CLI-only.
+    ``CLAUDE_CLI_BACKEND`` overrides any kwarg except an explicit "cli": that one is a
+    requirement (``ping`` must prove the CLI itself), not a default the env may flip.
     """
     global _down_until
-    backend = os.environ.get("CLAUDE_CLI_BACKEND") or backend
+    if backend != "cli":
+        backend = os.environ.get("CLAUDE_CLI_BACKEND") or backend
     if backend == "cli" or cli_only:
         return None
     if backend == "api":

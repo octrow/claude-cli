@@ -66,7 +66,7 @@ All model calls go through steps 1–11. They differ in defaults and in what the
 | `run_claude` | `auto` | yes | `json` (kwarg) | blocking; the only entry with `direct` |
 | `arun_claude` | `auto` | **absent** | `json` (kwarg) | HTTP step runs in `asyncio.to_thread`; CLI via `asyncio.create_subprocess_exec` |
 | `stream_claude` | `auto` | **absent** | forced `stream-json` | step 2 is told `json`, so a tool-less stream goes HTTP and emits no events |
-| `ping` | `cli` kwarg | no | `json` | `model="haiku"`, `timeout=90`, prompt "reply with the single word pong"; never raises; env `CLAUDE_CLI_BACKEND` still overrides its `cli` (#1) |
+| `ping` | `cli` kwarg | no | `json` | `model="haiku"`, `timeout=90`, prompt "reply with the single word pong"; never raises; always CLI (env cannot flip an explicit `cli`) |
 | `ClaudeCliProvider.ask` | `auto` | via `**kwargs` | `json` | `DEFAULT_MODEL="sonnet"`, `DEFAULT_TIMEOUT=300`; returns `.text` only |
 | `cached_run(runner, store, …)` | runner's | runner's | runner's | own `model="sonnet"` default, always passed; see side flows |
 
@@ -82,9 +82,10 @@ Module: `runner`, `cache`
 Decides: whether OmniRoute is used at all.
 In: `direct` kwarg.
 Branches:
+- kwargs are validated first, by the step 6 checks, before any route is tried;
 - `direct=True` (`run_claude` only) → skip steps 2–5, go to step 6 with no gateway prefix;
 - otherwise → step 2.
-Fails: n/a.
+Fails: bad kwargs → `ValueError` (see step 6), nothing is sent.
 Module: `runner`
 
 ### 2. CLI-only check
@@ -104,7 +105,7 @@ Module: `runner`
 Decides: try HTTP now, or go to the CLI.
 In: `backend` kwarg, env `CLAUDE_CLI_BACKEND`, `cli_only`, cooldown, key.
 Branches:
-- env `CLAUDE_CLI_BACKEND`, when non-empty, replaces the kwarg (also for `ping`);
+- env `CLAUDE_CLI_BACKEND`, when non-empty, replaces the kwarg, unless the kwarg is `cli`;
 - `cli` or `cli_only` → CLI (checked before `api`, so `api` + tools still runs the CLI);
 - `api` → step 4, errors propagate;
 - any other value (`auto`, `CLI`, `http` …) acts as `auto`: step 4 only if the process-wide cooldown has passed and `api_key()` finds a key.
@@ -148,7 +149,7 @@ Branches:
 - `--disable-slash-commands` unless `slash_commands`; `--permission-mode` when set;
 - always `--setting-sources <setting_sources> --strict-mcp-config --mcp-config <empty file>`.
 `--bare` is never added. `tier`/`profile` only pick `CLAUDE_CONFIG_DIR` inside the gateway, not the combo.
-Fails: `ValueError` before anything is spawned. Validation runs here, after steps 3–5: on HTTP a bad `tier` or flag-like `model` passes (#11).
+Fails: `ValueError`. The entry points run these checks at step 1, so a bad kwarg fails on every route.
 Module: `runner`, `preflight`
 
 ### 7. Sandbox
@@ -170,7 +171,7 @@ Branches:
 - `run_claude`: `Popen(start_new_session=True)` + `communicate(timeout)`;
 - `arun_claude`: `create_subprocess_exec` + `wait_for(timeout)`;
 - `stream_claude`: stdout read line by line, each JSON dict line → `on_event`; stderr drained on a thread; a `threading.Timer` kills at `timeout` even when the child prints nothing.
-Fails: missing `omniroute`/`claude` binary or a nonexistent `cwd` → bare `FileNotFoundError`, not a `ClaudeCliError` (#12). Timeout → SIGKILL to the process group (the real `claude` under `omniroute run` dies too) → `ClaudeCliError("claude timed out after Ns")`, no stdout kept. Ctrl-C, cancellation or a raising `on_event` → kill, then re-raise.
+Fails: missing `omniroute`/`claude` binary or a nonexistent `cwd` (any `OSError` from the spawn) → `ClaudeCliError("cannot start <argv0>: …")`. Timeout → SIGKILL to the process group (the real `claude` under `omniroute run` dies too) → `ClaudeCliError("claude timed out after Ns")`, no stdout kept. Ctrl-C, cancellation or a raising `on_event` → kill, then re-raise.
 Module: `runner`
 
 ### 9. Parse output
@@ -210,7 +211,7 @@ Module: `runner`
 ### Output
 
 `ClaudeResult`: `text`, `cost_usd` (envelope `total_cost_usd`; `0.0` on HTTP), `duration_ms`, `raw` (envelope or OpenAI body), `stdout` (raw CLI output; `""` on HTTP), `tier` (echo of the kwarg; `None` on HTTP).
-Errors: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; all are `RuntimeError`. Outside that family: `ValueError` for bad kwargs, `FileNotFoundError` from the spawn (#12).
+Errors: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; all are `RuntimeError`. Outside that family: `ValueError` for bad kwargs.
 Which route answered is not recorded; only `stdout == ""` tells HTTP apart.
 Module: `runner`, `errors`
 
@@ -233,7 +234,7 @@ Module: `batch`
 
 ### Health check (`ping`)
 
-`run_claude` with `backend="cli"`; returns `(True, "pong via omniroute, Ns")` or `(False, <cleaned error ≤200 chars>)`.
+`run_claude` with `backend="cli"`, which the env cannot override; returns `(True, "pong via omniroute, Ns")` or `(False, <cleaned error ≤200 chars>)`.
 Module: `runner`
 
 ### Preflight (`health`, `doctor`, `quota_status`, `simulate`, `dry_run_plan`)
@@ -251,12 +252,9 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- `CLAUDE_CLI_BACKEND` overrides `ping`'s `backend="cli"`: `ping` can pass over HTTP without touching `claude` (#1).
 - `timeout` is per route: an auto call can spend the HTTP timeout (no hard wall clock there) and then the full CLI timeout (#2).
 - `cached_run` key ignores `direct` and `effort`: a direct Claude answer and a `free-stack` answer share one row (#3).
 - HTTP sends model ids outside `COMBOS` verbatim; the CLI path maps them by glob; the same call can reach different combos (#4, not confirmed).
 - `backend="api"` never raises `UsageLimitError` and drops the error body (#5).
 - `run_chunks` keeps going after `NotLoggedInError` and session-wide limits (#6, question).
-- kwarg validation runs after the HTTP attempt: a bad `tier` or `model` fails only on CLI days (#11).
-- a missing binary or bad `cwd` raises `FileNotFoundError`, outside the `RuntimeError` contract (#12).
 - one rejected request (4xx) turns HTTP off for the whole process for 600 s (#13, question).
