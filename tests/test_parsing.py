@@ -53,6 +53,16 @@ def test_extract_json_raises_on_garbage():
         extract_json("no json here")
 
 
+def test_extract_json_raises_on_truncated_object():
+    with pytest.raises(json.JSONDecodeError):
+        extract_json('result: {"a": [1, 2')
+
+
+def test_extract_json_raises_on_invalid_balanced_object():
+    with pytest.raises(json.JSONDecodeError):
+        extract_json("use {curly} braces")
+
+
 def test_extract_json_or_none_degrades_on_garbage():
     assert extract_json_or_none("no json here") is None
     assert extract_json_or_none('ok: {"a": 1}') == {"a": 1}
