@@ -1,6 +1,7 @@
 __pycache__/
 *.py[co]
 .pytest_cache/
+.coverage
 .venv/
 *.egg-info/
 graphify-out/
