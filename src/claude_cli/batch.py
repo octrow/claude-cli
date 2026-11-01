@@ -6,6 +6,8 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from .errors import NotLoggedInError, UsageLimitError
+
 log = logging.getLogger(__name__)
 
 
@@ -40,6 +42,13 @@ def pack_batches(
     return batches
 
 
+def _session_ending(exc: Exception) -> bool:
+    """An error every later chunk would hit too: the login is gone, or the only route is spent."""
+    return isinstance(exc, NotLoggedInError) or (
+        isinstance(exc, UsageLimitError) and exc.session_wide
+    )
+
+
 def run_chunks(
     chunks: Iterable[Any],
     fn: Callable[[Any], tuple[Any, float]],
@@ -55,17 +64,24 @@ def run_chunks(
 
     Returns ``(results, total_cost, failed_labels)``. A chunk that raises is
     recorded in ``failed_labels`` and skipped — one bad chunk never aborts the
-    batch.
+    batch. Except a session-ending error (:class:`NotLoggedInError`, or a
+    :class:`UsageLimitError` with ``session_wide``): every later call would fail the
+    same way, so chunks not yet started are recorded as ``"<label>: skipped after
+    <Error>"`` instead of being run. Results collected so far are kept either way.
     """
     chunks = list(chunks)
     results, spent, failed = [], 0.0, []
+    stop: str | None = None  # the session-ending error's type name, once one was seen
 
     def _record(produce: Callable[[], tuple[Any, float]], chunk) -> None:
-        nonlocal spent
+        nonlocal spent, stop
         try:
             data, cost = produce()
         except Exception as exc:  # noqa: BLE001 — keep the batch alive
             failed.append(f"{label(chunk)}: {type(exc).__name__}: {str(exc)[:120]}")
+            if _session_ending(exc) and stop is None:
+                stop = type(exc).__name__
+                log.warning("%s ends the session: remaining chunks are skipped", stop)
             return
         spent += cost or 0.0
         results.append(data)
@@ -73,6 +89,9 @@ def run_chunks(
     if workers <= 1:
         iterator = progress(chunks) if progress else chunks
         for chunk in iterator:
+            if stop:
+                failed.append(f"{label(chunk)}: skipped after {stop}")
+                continue
             _record(lambda c=chunk: fn(c), chunk)
         return results, spent, failed
 
@@ -84,5 +103,11 @@ def run_chunks(
         if progress:
             stream = progress(stream, total=len(futs))
         for fut in stream:
+            if fut.cancelled():
+                failed.append(f"{label(futs[fut])}: skipped after {stop}")
+                continue
             _record(fut.result, futs[fut])
+            if stop:
+                for pending in futs:
+                    pending.cancel()  # no-op for running and finished ones
     return results, spent, failed

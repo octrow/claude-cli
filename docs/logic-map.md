@@ -43,10 +43,10 @@ The route is decided in four places by independent signals, not one registry.
 | Route / variant | Switched on by | Steps it changes | What changes |
 |---|---|---|---|
 | CLI direct | `direct=True` (only `run_claude` has it) | 1, 6, 7, 10 | no `omniroute` prefix, no HTTP, gateway env dropped, limit is `session_wide=True` |
-| CLI forced | `tools`, `allowed_tools`, `slash_commands`, remote opts, `output_format="stream-json"`, `cwd` holding `CLAUDE.md` or `.claude` | 2 | HTTP skipped |
+| CLI forced | `model` starting with `claude-`, `tools`, `allowed_tools`, `slash_commands`, remote opts, `output_format="stream-json"`, `cwd` holding `CLAUDE.md` or `.claude` | 2 | HTTP skipped |
 | HTTP off | `CLAUDE_CLI_BACKEND`/`backend` = `cli`; no `OMNIROUTE_API_KEY`; cooldown active | 3 | CLI through gateway |
 | HTTP only | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | no fallback, no cooldown, `HttpLlmError` raised; still CLI when `direct` or a step-2 signal is set (#14) |
-| Model → combo | `COMBOS` dict on HTTP; gateway glob mappings on CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; other values verbatim on HTTP |
+| Model → combo | `COMBOS` dict on HTTP; gateway glob mappings on CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; a bare combo name verbatim on both; `claude-*` ids only on the CLI (glob) |
 | Failure class | regexes over cleaned stdout+stderr of a failed run | 10 | which exception type, `session_wide`, gateway hint |
 
 Examples:
@@ -91,8 +91,9 @@ Module: `runner`
 ### 2. CLI-only check
 
 Decides: whether the call needs something only the CLI carries.
-In: `tools`, `allowed_tools`, `slash_commands`, `cwd`, remote opts, `output_format`. Out: `cli_only` bool.
+In: `model`, `tools`, `allowed_tools`, `slash_commands`, `cwd`, remote opts, `output_format`. Out: `cli_only` bool.
 Branches:
+- `model` starting with `claude-` → CLI: only the CLI path gets the gateway's glob mappings (`claude-opus-*` → `hard` …), HTTP would send the id verbatim;
 - any of `tools`, `allowed_tools`, `slash_commands`, `remote`/`base_url`/`context`/`provider` set → CLI;
 - `output_format == "stream-json"` → CLI (`stream_claude` passes `"json"` here, so it does not count);
 - `cwd` containing `CLAUDE.md` or `.claude` → CLI; an empty or neutral `cwd` does not count.
@@ -130,7 +131,8 @@ Module: `http_api`
 
 Decides: whether an HTTP error ends the call.
 Branches:
-- `auto` + `HttpLlmError` → warning log, `_down_until = now + 600 s` for the whole process (all models, any status incl. 4xx), continue at step 6;
+- `auto` + `HttpLlmError` with status 400, 413 or 422 (this request rejected) → warning log, continue at step 6, no cooldown;
+- `auto` + any other `HttpLlmError` (no answer, 401, 404, 429, 5xx …) → warning log, `_down_until = now + 600 s` for the whole process (all models), continue at step 6;
 - any other exception → reaches the caller, no fallback, no cooldown;
 - `api` + an HTTP status → `HTTP <code>` plus the error body (≤64 KiB, kept in `.stdout`) run through the step 10 classifier: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → gateway error with hint, else `HttpLlmError("HTTP <code> from <url>: <body ≤300>")`;
 - `api` + a transport error → `HttpLlmError`.
@@ -231,7 +233,7 @@ Module: `cache`
 ### Batches (`pack_batches`, `run_chunks`)
 
 `pack_batches`: greedy, order kept; a batch closes before the item that would pass `budget` or `max_items` (`<= 0` disables); an oversized item rides alone.
-`run_chunks`: `fn(chunk) -> (data, cost)`; `workers > 1` → thread pool, results in completion order. Any `Exception` → `"<label>: <Type>: <120 chars>"` in `failed`, batch continues, including `NotLoggedInError` and session-wide limits (#6).
+`run_chunks`: `fn(chunk) -> (data, cost)`; `workers > 1` → thread pool, results in completion order. Any `Exception` → `"<label>: <Type>: <120 chars>"` in `failed`, batch continues. `NotLoggedInError` or `UsageLimitError(session_wide=True)` stops spending: chunks not yet started → `"<label>: skipped after <Type>"` (parallel: pending futures cancelled, running ones finish); results so far are kept, nothing is raised.
 Module: `batch`
 
 ### Health check (`ping`)
@@ -254,6 +256,4 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- HTTP sends model ids outside `COMBOS` verbatim; the CLI path maps them by glob; the same call can reach different combos (#4, not confirmed).
-- `run_chunks` keeps going after `NotLoggedInError` and session-wide limits (#6, question).
-- one rejected request (4xx) turns HTTP off for the whole process for 600 s (#13, question).
+- No open HIGH or MEDIUM findings. Open LOW ones (#7–#10, #14–#18) are in the plan.

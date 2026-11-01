@@ -50,6 +50,35 @@ batch is expensive, and a single oversized or malformed chunk is expected.
   failing chunk appears in `failed_labels` with its label and error
 - **Anchor**: `tests/test_batch.py::test_run_chunks_records_failures_without_aborting`
 
+### Requirement: A session-ending error stops spending, not the batch
+
+A `NotLoggedInError`, or a `UsageLimitError` with `session_wide=True`, means every
+later call would fail the same way. After one, `run_chunks` MUST NOT start another
+chunk: each chunk not yet started MUST be recorded in `failed_labels` as
+`"<label>: skipped after <Error>"`. In parallel mode pending futures are cancelled and
+running ones finish and are recorded normally. Results already collected MUST be
+returned and nothing is raised. A `UsageLimitError` with `session_wide=False` (one
+upstream of a gateway combo) is an ordinary failing chunk.
+
+#### Scenario: A lost login skips the rest of a sequential batch
+
+- **WHEN** chunk 2 of 4 raises `NotLoggedInError`
+- **THEN** chunks 3 and 4 are never run and appear as `skipped after NotLoggedInError`,
+  and chunk 1's result is returned
+- **Anchor**: `tests/test_batch.py::test_run_chunks_stops_spending_after_a_session_ending_error`
+
+#### Scenario: Pending parallel chunks are cancelled
+
+- **WHEN** a chunk raises `NotLoggedInError` with more chunks queued than workers
+- **THEN** the queued chunks are recorded as skipped and never run
+- **Anchor**: `tests/test_batch.py::test_run_chunks_parallel_cancels_what_has_not_started`
+
+#### Scenario: A gateway limit does not stop the batch
+
+- **WHEN** a chunk raises `UsageLimitError(session_wide=False)`
+- **THEN** the remaining chunks still run
+- **Anchor**: `tests/test_batch.py::test_run_chunks_keeps_going_after_a_gateway_limit`
+
 ### Requirement: Parallelism is opt-in via a thread pool
 
 `run_chunks` MUST run sequentially when `workers <= 1` and MUST use a thread pool

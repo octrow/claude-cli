@@ -464,8 +464,12 @@ def _http_first(
     from .http_api import try_http  # late: http_api imports ClaudeResult from here
 
     project = bool(cwd) and any((Path(cwd) / m).exists() for m in ("CLAUDE.md", ".claude"))
+    # A `claude-*` id reaches its combo through the gateway's glob mappings, which only the
+    # CLI path gets; HTTP would send the id verbatim and may land elsewhere. Aliases and bare
+    # combo names map the same on both routes, so they stay on HTTP.
     cli_only = bool(
-        tools
+        model.startswith("claude-")
+        or tools
         or allowed_tools
         or slash_commands
         or project

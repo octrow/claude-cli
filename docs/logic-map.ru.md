@@ -41,10 +41,10 @@ ClaudeResult | NotLoggedInError | UsageLimitError | ClaudeCliError
 | Маршрут / вариант | Включается | Какие шаги меняет | Что меняется |
 |---|---|---|---|
 | CLI direct | `direct=True` (есть только у `run_claude`) | 1, 6, 7, 10 | нет префикса `omniroute`, нет HTTP, env шлюза убран, лимит `session_wide=True` |
-| CLI принудительно | `tools`, `allowed_tools`, `slash_commands`, remote-опции, `output_format="stream-json"`, `cwd` с `CLAUDE.md` или `.claude` | 2 | HTTP пропущен |
+| CLI принудительно | `model`, начинающийся с `claude-`, `tools`, `allowed_tools`, `slash_commands`, remote-опции, `output_format="stream-json"`, `cwd` с `CLAUDE.md` или `.claude` | 2 | HTTP пропущен |
 | HTTP выключен | `CLAUDE_CLI_BACKEND`/`backend` = `cli`; нет `OMNIROUTE_API_KEY`; идёт cooldown | 3 | CLI через шлюз |
 | Только HTTP | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | без отката и cooldown, летит `HttpLlmError`; всё равно CLI при `direct` или сигнале шага 2 (#14) |
-| Модель → комбо | словарь `COMBOS` на HTTP; glob-маппинг шлюза на CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; прочее по HTTP уходит как есть |
+| Модель → комбо | словарь `COMBOS` на HTTP; glob-маппинг шлюза на CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; голое имя комбо как есть на обоих; id `claude-*` только через CLI (glob) |
 | Класс сбоя | регэкспы по очищенным stdout+stderr упавшего прогона | 10 | тип исключения, `session_wide`, подсказка про шлюз |
 
 Примеры:
@@ -89,8 +89,9 @@ Module: `runner`
 ### 2. Проверка CLI-only
 
 Решает: нужно ли вызову то, что несёт только CLI.
-Вход: `tools`, `allowed_tools`, `slash_commands`, `cwd`, remote-опции, `output_format`. Выход: bool `cli_only`.
+Вход: `model`, `tools`, `allowed_tools`, `slash_commands`, `cwd`, remote-опции, `output_format`. Выход: bool `cli_only`.
 Ветки:
+- `model` начинается с `claude-` → CLI: glob-маппинг шлюза (`claude-opus-*` → `hard` …) есть только на пути CLI, HTTP отправил бы id как есть;
 - задан любой из `tools`, `allowed_tools`, `slash_commands`, `remote`/`base_url`/`context`/`provider` → CLI;
 - `output_format == "stream-json"` → CLI (`stream_claude` передаёт сюда `"json"`, так что не считается);
 - `cwd` с `CLAUDE.md` или `.claude` → CLI; пустой или нейтральный `cwd` не считается.
@@ -128,7 +129,8 @@ Module: `http_api`
 
 Решает: заканчивает ли ошибка HTTP вызов.
 Ветки:
-- `auto` + `HttpLlmError` → warning в лог, `_down_until = now + 600 с` на весь процесс (все модели, любой статус, включая 4xx), дальше шаг 6;
+- `auto` + `HttpLlmError` со статусом 400, 413 или 422 (отклонён этот запрос) → warning в лог, дальше шаг 6, без cooldown;
+- `auto` + любой другой `HttpLlmError` (нет ответа, 401, 404, 429, 5xx …) → warning в лог, `_down_until = now + 600 с` на весь процесс (все модели), дальше шаг 6;
 - любое другое исключение → доходит до вызывающего, без отката и cooldown;
 - `api` + HTTP-статус → `HTTP <code>` и тело ошибки (≤64 KiB, лежит в `.stdout`) проходят классификатор шага 10: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → ошибка шлюза с подсказкой, иначе `HttpLlmError("HTTP <code> from <url>: <тело ≤300>")`;
 - `api` + транспортная ошибка → `HttpLlmError`.
@@ -229,7 +231,7 @@ Module: `cache`
 ### Пакеты (`pack_batches`, `run_chunks`)
 
 `pack_batches`: жадно, порядок сохраняется; пакет закрывается перед элементом, который превысил бы `budget` или `max_items` (`<= 0` выключает); слишком большой элемент едет один.
-`run_chunks`: `fn(chunk) -> (data, cost)`; `workers > 1` → пул потоков, результаты в порядке завершения. Любой `Exception` → `"<label>: <Type>: <120 символов>"` в `failed`, пакет продолжается, в том числе после `NotLoggedInError` и лимитов на всю сессию (#6).
+`run_chunks`: `fn(chunk) -> (data, cost)`; `workers > 1` → пул потоков, результаты в порядке завершения. Любой `Exception` → `"<label>: <Type>: <120 символов>"` в `failed`, пакет продолжается. `NotLoggedInError` или `UsageLimitError(session_wide=True)` останавливает траты: ещё не начатые куски → `"<label>: skipped after <Type>"` (параллельно: ожидающие futures отменяются, запущенные доходят); собранные результаты сохраняются, исключение не бросается.
 Module: `batch`
 
 ### Проверка здоровья (`ping`)
@@ -252,6 +254,4 @@ Module: `parsing`
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- HTTP шлёт id моделей вне `COMBOS` как есть, CLI маппит их по glob; один вызов может попасть в разные комбо (#4, не подтверждено).
-- `run_chunks` продолжает после `NotLoggedInError` и лимитов на всю сессию (#6, вопрос).
-- один отклонённый запрос (4xx) выключает HTTP на весь процесс на 600 с (#13, вопрос).
+- Открытых HIGH и MEDIUM нет. Открытые LOW (#7–#10, #14–#18) — в плане.

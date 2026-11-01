@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `run_chunks` stops spending after `NotLoggedInError` or a session-wide `UsageLimitError`: chunks not yet started are recorded as `skipped after <Error>` instead of being run; results collected so far are kept.
+- The HTTP route no longer parks itself for 600 s after a 400, 413 or 422: those reject one request, so only that call falls back to the CLI.
+- A `claude-*` model id stays on the CLI, where the gateway's glob mappings pick its combo; over HTTP it was sent verbatim and could reach a different combo.
+
 ## [0.1.7] - 2026-11-01
 
 ### Fixed

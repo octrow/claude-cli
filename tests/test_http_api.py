@@ -351,12 +351,16 @@ def test_http_spending_the_whole_budget_times_out_without_spawning(auto, monkeyp
 
 
 def _fail_with(monkeypatch, code, body):
+    calls = []
+
     def urlopen(req, timeout):
+        calls.append(req)
         raise urllib.error.HTTPError(
             req.full_url, code, "err", HTTPMessage(), io.BytesIO(body.encode())
         )
 
     monkeypatch.setattr(http_api._OPENER, "open", urlopen)
+    return calls
 
 
 def test_api_429_is_a_usage_limit(auto, monkeypatch, cli):
@@ -385,3 +389,38 @@ def test_auto_429_still_falls_back_to_cli(auto, monkeypatch, cli):
     _fail_with(monkeypatch, 429, '{"error":"slow down"}')
     with pytest.raises(RuntimeError, match="cli reached"):
         run_claude("p")
+
+
+# --- a per-request rejection does not park HTTP for everyone (#13) ---------------
+
+
+@pytest.mark.parametrize("code", [400, 413, 422])
+def test_per_request_rejection_does_not_cool_down(auto, monkeypatch, cli, code):
+    calls = _fail_with(monkeypatch, code, '{"error":"bad request"}')
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="cli reached"):
+            run_claude("p")
+    assert len(calls) == 2 and len(cli) == 2  # both fell back, neither parked HTTP
+
+
+@pytest.mark.parametrize("code", [401, 404, 429, 503])
+def test_gateway_wide_failure_still_cools_down(auto, monkeypatch, cli, code):
+    calls = _fail_with(monkeypatch, code, '{"error":"no"}')
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="cli reached"):
+            run_claude("p")
+    assert len(calls) == 1
+
+
+# --- claude-* ids take the CLI's glob route, not a verbatim HTTP id (#4) ------------
+
+
+def test_claude_model_ids_stay_on_the_cli(auto, http, cli):
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p", model="claude-opus-5-5")
+    assert not http.calls
+
+
+def test_combo_names_still_use_http(auto, http, cli):
+    assert run_claude("p", model="sub-first").text == "hi"
+    assert http.calls[0][1]["model"] == "sub-first" and not cli

@@ -27,6 +27,10 @@ log = logging.getLogger(__name__)
 # any other value (a bare combo name) passes through unchanged
 COMBOS = {"haiku": "free-stack", "sonnet": "free-stack", "opus": "hard"}
 COOLDOWN_SECS = 600
+#: Statuses that reject this one request (malformed, too large, unknown model): the next
+#: call may pass, so they fall back to the CLI without parking HTTP for the whole process.
+#: Everything else (no answer, 401 key, 404 URL, 429, 5xx) is gateway-wide and cools down.
+PER_REQUEST_STATUSES = frozenset({400, 413, 422})
 ENV_FILE = Path.home() / ".omniroute" / ".env"
 DEFAULT_URL = "http://localhost:20128"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024  # a chat completion is KBs; a bigger body is a broken gateway
@@ -212,6 +216,9 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
     try:
         return omniroute_chat(prompt, **kw)
     except HttpLlmError as exc:
+        if exc.status in PER_REQUEST_STATUSES:
+            log.warning("omniroute http rejected this request (%s); CLI fallback", exc)
+            return None
         _down_until = time.monotonic() + COOLDOWN_SECS
         log.warning(
             "omniroute http failed (%s); CLI fallback, http off for %ds", exc, COOLDOWN_SECS

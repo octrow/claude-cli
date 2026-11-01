@@ -64,11 +64,13 @@ extract_json(res.text)  # {'ok': True}
 Tool-less `run_claude` / `arun_claude` calls are POSTed to OmniRoute's `/v1/chat/completions`.
 The key comes from `OMNIROUTE_API_KEY` or `~/.omniroute/.env`, the URL from `OMNIROUTE_URL`
 (default `http://localhost:20128`). Without a key the HTTP route is skipped. If it fails, the
-wrapper logs a warning, falls back to the CLI and stops trying HTTP for 600 s in that process.
+wrapper logs a warning, falls back to the CLI and stops trying HTTP for 600 s in that process
+(a 400, 413 or 422 only rejects that one request, so it falls back without the pause).
 The key is only sent over https, or over plain http to a loopback host. Redirects are not
 followed, and a URL with `user:password@` in it is refused.
 
-These stay on the CLI: calls with `tools`/`allowed_tools`, a project `cwd` (one holding
+These stay on the CLI: a `claude-*` model id (only the CLI gets the gateway's glob
+mappings), calls with `tools`/`allowed_tools`, a project `cwd` (one holding
 `CLAUDE.md` or `.claude/`), `slash_commands`, remote overrides, `output_format="stream-json"`,
 and `ping`. A tool-less `stream_claude` also goes over HTTP and then emits no events.
 
