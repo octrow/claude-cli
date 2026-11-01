@@ -34,3 +34,6 @@ include = ["src", "tests", "README.md", "LICENSE"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100  # the code was already written to ~100; only 6 lines were longer
