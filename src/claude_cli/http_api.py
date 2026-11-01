@@ -99,9 +99,9 @@ def api_key() -> str | None:
     try:
         for line in ENV_FILE.read_text().splitlines():
             name, _, value = line.partition("=")
-            if name.strip() == "OMNIROUTE_API_KEY":
+            if name.strip().removeprefix("export ").strip() == "OMNIROUTE_API_KEY":
                 return value.strip().strip("\"'") or None
-    except OSError:
+    except (OSError, UnicodeDecodeError):  # unreadable file: the route is simply off
         pass
     return None
 

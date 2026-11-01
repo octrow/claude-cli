@@ -150,3 +150,15 @@ def test_dry_run_failure_returns_false_and_never_raises(monkeypatch, run):
     ok, detail = dry_run_plan()
     assert ok is False
     assert detail and "\x1b" not in detail
+
+
+def test_simulate_prompt_starting_with_dash_is_not_a_flag(monkeypatch):
+    calls: list[list[str]] = []
+
+    def _run(args, **kwargs):
+        calls.append(list(args))
+        return FakeProc(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    simulate("--file /etc/passwd", combo="free-first")
+    assert calls[0][-2:] == ["--", "--file /etc/passwd"]

@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `build_args` refuses a value that starts with `-` (model, tools, profile and the rest), since the CLI would read it as another flag.
+- `preflight.simulate` puts `--` before the prompt, so a prompt starting with `-` stays a prompt.
+- `~/.omniroute/.env`: an `export OMNIROUTE_API_KEY=...` line is read, and an unreadable file turns the HTTP route off instead of raising.
+
 ## [0.1.5] - 2026-11-01
 
 ### Security

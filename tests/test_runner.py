@@ -898,3 +898,21 @@ def test_build_args_profile_wins_over_tier():
 def test_build_args_unknown_tier_raises():
     with pytest.raises(ValueError, match="unknown tier"):
         build_args(mcp_config="m", tier="mega")
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"model": "--dangerously-skip-permissions"},
+        {"effort": "-x"},
+        {"tools": "-Bash"},
+        {"tools": "Read", "allowed_tools": "--add-dir=/"},
+        {"permission_mode": "-bypass"},
+        {"setting_sources": "-user"},
+        {"profile": "--remote"},
+        {"remote": "-h"},
+    ],
+)
+def test_build_args_refuses_values_that_look_like_flags(kw):
+    with pytest.raises(ValueError, match="flag"):
+        build_args(mcp_config="/tmp/mcp.json", **kw)

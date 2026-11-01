@@ -289,7 +289,7 @@ def simulate(prompt: str, combo: str | None = None, timeout: int = 60) -> tuple[
     args = ["omniroute", "simulate"]
     if combo:
         args += ["--combo", combo]
-    args.append(prompt)
+    args += ["--", prompt]  # a prompt starting with '-' must not parse as a flag
     return _call(args, timeout)
 
 

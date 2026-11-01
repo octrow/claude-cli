@@ -181,6 +181,13 @@ def _flags(*pairs: tuple[str, str | None]) -> list[str]:
     return [part for flag, value in pairs if value for part in (flag, value)]
 
 
+def _refuse_flag_like(values: dict[str, str | None]) -> None:
+    """Every value is passed as ``--flag value``; one starting with '-' would parse as a flag."""
+    for name, value in values.items():
+        if value and value.startswith("-"):
+            raise ValueError(f"{name}={value!r} starts with '-' and would be read as a flag")
+
+
 def _check_routing(tier: str | None, direct: bool, *, gateway_set: bool) -> None:
     if tier is not None and tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
@@ -224,6 +231,22 @@ def build_args(
     """
     _check_routing(
         tier, direct, gateway_set=any((tier, remote, base_url, context, provider, profile))
+    )
+    _refuse_flag_like(
+        {
+            "model": model,
+            "effort": effort,
+            "output_format": output_format,
+            "tools": tools,
+            "allowed_tools": allowed_tools,
+            "setting_sources": setting_sources,
+            "permission_mode": permission_mode,
+            "remote": remote,
+            "base_url": base_url,
+            "context": context,
+            "provider": provider,
+            "profile": profile,
+        }
     )
     gateway = _flags(
         ("--remote", remote),

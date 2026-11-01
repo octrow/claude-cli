@@ -254,3 +254,13 @@ def test_redirect_is_not_followed_with_the_key(auto, monkeypatch):
     finally:
         server.shutdown()
     assert [path for path, _ in seen] == ["/v1/chat/completions"]
+
+
+def test_dotenv_export_prefix_and_binary_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("OMNIROUTE_API_KEY", raising=False)
+    env = tmp_path / ".env"
+    monkeypatch.setattr(http_api, "ENV_FILE", env)
+    env.write_text('export OMNIROUTE_API_KEY="k1"\n')
+    assert http_api.api_key() == "k1"
+    env.write_bytes(b"\xff\xfe\x00garbage")
+    assert http_api.api_key() is None  # unreadable file: route off, never a crash
