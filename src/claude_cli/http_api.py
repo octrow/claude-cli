@@ -144,9 +144,11 @@ def omniroute_chat(
     model: str = "sonnet",
     timeout: float = 300,
     system_prompt: str | None = None,
+    tier: str | None = None,
     **_ignored,
 ) -> ClaudeResult:
-    """One chat completion, ClaudeResult-shaped. CLI-only knobs (effort, cwd...) are ignored."""
+    """One chat completion, ClaudeResult-shaped. CLI-only knobs (effort, cwd...) are ignored;
+    ``tier`` only labels the result, as on the CLI path."""
     key = api_key()
     if not key:
         raise HttpLlmError("no OMNIROUTE_API_KEY")
@@ -154,7 +156,8 @@ def omniroute_chat(
     messages = [{"role": "user", "content": prompt}]
     if system_prompt:
         messages.insert(0, {"role": "system", "content": system_prompt})
-    body = json.dumps({"model": COMBOS.get(model, model), "messages": messages}).encode()
+    combo = COMBOS.get(model, model)
+    body = json.dumps({"model": combo, "messages": messages}).encode()
     req = urllib.request.Request(
         url, body, {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     )
@@ -179,9 +182,9 @@ def omniroute_chat(
             "output_tokens": usage.get("completion_tokens"),
         },
     }
-    return ClaudeResult(
-        text=text, cost_usd=0.0, raw=raw, duration_ms=int((time.monotonic() - t0) * 1000)
-    )
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    log.info("claude ok via http: model=%s combo=%s %dms", model, combo, duration_ms)
+    return ClaudeResult(text=text, cost_usd=0.0, raw=raw, duration_ms=duration_ms, tier=tier)
 
 
 def _raise_status_error(exc: HttpLlmError) -> None:

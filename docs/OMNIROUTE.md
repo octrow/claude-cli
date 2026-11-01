@@ -182,8 +182,8 @@ use-vs-avoid всего покрытия v3.8.51 живёт в `claude_cli.prefl
 
 **Результат.** `ClaudeResult(text, cost_usd=0.0, duration_ms, raw)`; `raw` — тело ответа
 OpenAI, где `usage` переписан в ключи CLI-конверта `input_tokens`/`output_tokens`, чтобы
-счётчики вроде `normalize_usage` в jobs работали без правок. `stdout` пуст, тир не
-возвращается, `effort` и прочие CLI-only параметры по HTTP игнорируются.
+счётчики вроде `normalize_usage` в jobs работали без правок. `stdout` пуст, `tier` возвращается
+как у CLI, в лог пишется `claude ok via http`; `effort` и прочие CLI-only параметры по HTTP игнорируются.
 
 **Зачем.** Каждый CLI-вызов поднимал Claude Code (процесс Node + его системный промпт), чтобы
 переслать один промпт в тот же шлюз. Замер 2026-10-13: «pong» по HTTP ~3 с, 83 входных

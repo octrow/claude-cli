@@ -481,3 +481,18 @@ def test_trailing_slash_in_url_is_dropped(auto, monkeypatch, http):
     monkeypatch.setenv("OMNIROUTE_URL", "http://localhost:20128/")
     omniroute_chat("p", timeout=5)
     assert http.calls[0][0].full_url == "http://localhost:20128/v1/chat/completions"
+
+
+# --- an HTTP answer keeps the tier and leaves a log line (#9) ----------------------
+
+
+def test_http_result_echoes_tier_and_logs(auto, http, cli, caplog):
+    caplog.set_level("INFO", logger="claude_cli.http_api")
+    res = run_claude("p", model="opus", tier="high")
+    assert res.tier == "high"
+    assert any("via http" in r.getMessage() and "hard" in r.getMessage() for r in caplog.records)
+
+
+def test_async_and_stream_http_results_echo_tier(auto, http, cli):
+    assert asyncio.run(arun_claude("p", tier="low")).tier == "low"
+    assert stream_claude("p", lambda _e: None, tier="low").tier == "low"

@@ -945,3 +945,37 @@ async def test_async_spawn_failure_is_cli_error(monkeypatch):
 def test_missing_cwd_is_cli_error(tmp_path):
     with pytest.raises(ClaudeCliError, match="no-such-dir"):
         run_claude("p", cwd=tmp_path / "no-such-dir", direct=True)
+
+
+# --- a direct run is never blamed on OmniRoute (#7) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "stderr", ["API Error: 503 Service Unavailable", "fallback exhausted upstream"]
+)
+def test_direct_failure_gets_no_gateway_hint(fake_run, stderr):
+    fake_run(returncode=1, stdout="", stderr=stderr)
+    with pytest.raises(ClaudeCliError) as info:
+        run_claude("p", model="claude-sonnet-5-5", direct=True)
+    message = str(info.value)
+    assert message.startswith("claude exited 1:")
+    assert "OmniRoute" not in message and "omniroute gateway error" not in message
+
+
+def test_gateway_failure_keeps_its_hint(fake_run):
+    fake_run(returncode=1, stdout="", stderr="API Error: 503 Service Unavailable")
+    with pytest.raises(ClaudeCliError, match="This looks like OmniRoute"):
+        run_claude("p")
+
+
+# --- claude_available for a direct-only machine (#8) --------------------------
+
+
+def test_claude_available_direct_needs_only_claude(monkeypatch):
+    from claude_cli import claude_available
+
+    monkeypatch.setattr(
+        runner_mod.shutil, "which", lambda name: "/bin/claude" if name == "claude" else None
+    )
+    assert claude_available(direct=True) is True
+    assert claude_available() is False

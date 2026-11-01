@@ -175,9 +175,11 @@ def _child_env(direct: bool = False) -> dict[str, str]:
     return {k: v for k, v in env.items() if not (direct and k in GATEWAY_ENV)}
 
 
-def claude_available() -> bool:
-    """True if OmniRoute and the underlying ``claude`` CLI are on PATH."""
-    return shutil.which("omniroute") is not None and shutil.which("claude") is not None
+def claude_available(direct: bool = False) -> bool:
+    """True if the binaries a call needs are on PATH: ``claude``, plus ``omniroute`` unless
+    the caller only makes ``direct`` calls."""
+    binaries = ("claude",) if direct else ("omniroute", "claude")
+    return all(shutil.which(name) is not None for name in binaries)
 
 
 def _flags(*pairs: tuple[str, str | None]) -> list[str]:
@@ -372,13 +374,13 @@ def _raise_classified(
             "complete /login, then retry.",
             stdout=stdout,
         )
-    if _GATEWAY_EXHAUSTED_RE.search(combined):
+    if via_gateway and _GATEWAY_EXHAUSTED_RE.search(combined):
         raise ClaudeCliError(
             f"omniroute gateway error: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
         )
     if limit_hit := _USAGE_LIMIT_RE.search(combined):
-        # Every call built by `build_args` goes through `omniroute run`, so a limit
-        # here is ONE upstream in the chain, not the end of the road.
+        # Through `omniroute run` a limit is ONE upstream in the chain, not the end of the
+        # road; on a direct call the local login is the only route there is.
         raise UsageLimitError(
             f"claude hit a usage/rate limit: {_matched_line(combined, limit_hit)}",
             stdout=stdout,
@@ -387,13 +389,21 @@ def _raise_classified(
 
 
 def _exit_error(
-    returncode: int | None, detail: str, raw: str, combined: str, stdout: str, tier: str | None
+    returncode: int | None,
+    detail: str,
+    raw: str,
+    combined: str,
+    stdout: str,
+    *,
+    tier: str | None,
+    via_gateway: bool,
 ) -> ClaudeCliError:
+    """A failed run nothing classified. Only a gateway run can be OmniRoute's fault, so only
+    it gets the OmniRoute diagnosis hint."""
     if detail == "(no output)" and raw.strip():
         detail = "(stderr held only omniroute warnings)"
-    return ClaudeCliError(
-        f"claude exited {returncode}: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
-    )
+    hint = _gateway_hint(combined, tier) if via_gateway else ""
+    return ClaudeCliError(f"claude exited {returncode}: {detail}{hint}", stdout=stdout)
 
 
 def _success(
@@ -437,9 +447,9 @@ def _finish(
 ) -> ClaudeResult:
     """Classify a finished run: raise on failure, else return the result.
 
-    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
-    always prefixes ``omniroute run``); it decides whether a usage limit is
-    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
+    ``via_gateway`` is False for a direct call (``run_claude(direct=True)``, no
+    ``omniroute run`` prefix). It decides whether a usage limit is session-wide and
+    whether a failure may be the gateway's (gateway-exhausted error, OmniRoute hint).
     """
     try:  # a failed run's envelope carries the real error text in `result`
         env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
@@ -454,7 +464,15 @@ def _finish(
     if returncode != 0 or env.get("is_error"):
         _raise_classified(combined, detail, stdout, tier=tier, via_gateway=via_gateway)
     if returncode != 0:
-        raise _exit_error(returncode, detail, stdout + stderr, combined, stdout, tier)
+        raise _exit_error(
+            returncode,
+            detail,
+            stdout + stderr,
+            combined,
+            stdout,
+            tier=tier,
+            via_gateway=via_gateway,
+        )
     return _success(env, stdout, output_format=output_format, elapsed_ms=elapsed_ms, tier=tier)
 
 
@@ -469,6 +487,8 @@ def _http_first(
     slash_commands,
     cwd,
     remote_opts,
+    *,
+    tier: str | None = None,
 ) -> ClaudeResult | None:
     """The HTTP route's answer, or None. Calls needing tools, the raw stream-json events,
     a project dir (CLAUDE.md / .claude), slash commands or a remote override stay on the
@@ -488,7 +508,9 @@ def _http_first(
         or any(remote_opts)
         or output_format == "stream-json"
     )
-    return try_http(prompt, backend=backend, cli_only=cli_only, model=model, timeout=timeout)
+    return try_http(
+        prompt, backend=backend, cli_only=cli_only, model=model, timeout=timeout, tier=tier
+    )
 
 
 def run_claude(
@@ -573,6 +595,7 @@ def run_claude(
                 slash_commands,
                 cwd,
                 (remote, base_url, context, provider),
+                tier=tier,
             )
         )
         is not None
@@ -688,6 +711,7 @@ def stream_claude(
             slash_commands,
             cwd,
             (remote, base_url, context, provider),
+            tier=tier,
         )
     ) is not None:
         return res
@@ -853,6 +877,7 @@ async def arun_claude(
             slash_commands,
             cwd,
             (remote, base_url, context, provider),
+            tier=tier,
         )
     ) is not None:
         return res

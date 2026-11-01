@@ -223,7 +223,7 @@ dry_run_plan()  # planned command, args and env key *names* only
 None of these raise or spend quota; each returns `(ok, text)`.
 
 * `claude_available()` checks that `omniroute` and `claude` are on `PATH`, for callers that
-  fall back to a non-LLM path.
+  fall back to a non-LLM path; `claude_available(direct=True)` checks `claude` only.
 * `ping(model="haiku", timeout=90)` makes one real call ("reply with the single word pong")
   for doctor-style startup checks. It never raises: `(True, "pong via omniroute, 6.2s")` on
   success, `(False, <cleaned error, up to 200 chars>)` otherwise.

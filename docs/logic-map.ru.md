@@ -123,7 +123,7 @@ Module: `http_api`
 - `model` есть в `COMBOS` → `free-stack`/`hard`; любое другое значение уходит как есть;
 - тело только `{"model", "messages"}`: без `temperature` (он включил бы семантический кэш шлюза), без `effort`.
 Редиректы не выполняются (ключ ушёл бы повторно). Тело ограничено 8 MiB; дедлайн проверяется только между чтениями тела, так что connect, заголовки и одно зависшее чтение получают каждый свой `timeout`.
-`raw` хранит тело OpenAI, `usage` переименован в `input_tokens`/`output_tokens`. `stdout=""`, `tier=None`.
+`raw` хранит тело OpenAI, `usage` переименован в `input_tokens`/`output_tokens`. `stdout=""`, `tier` — эхо. Успех пишет в лог `claude ok via http: model=… combo=… Nms` (INFO).
 Сбой: транспорт, статус, JSON, форма `choices` или пустой текст → `HttpLlmError` (подкласс `ClaudeCliError`). Не-dict `usage` читается как пустой.
 Module: `http_api`
 
@@ -193,12 +193,12 @@ Module: `parsing`
 Вход: stdout+stderr без ANSI-кодов и трёх видов баннеров OmniRoute.
 Ветки, побеждает первое совпадение:
 - "Not logged in" где угодно → `NotLoggedInError`;
-- шлюз исчерпан (`ALL_TARGETS_SKIPPED`, `no provider matched`, `fallback exhausted`, `allowedModels`, `PROXY_FAST_FAIL`, `circuit breaker` …) → `ClaudeCliError("omniroute gateway error: …")` + подсказка;
+- только вызов через шлюз: шлюз исчерпан (`ALL_TARGETS_SKIPPED`, `no provider matched`, `fallback exhausted`, `allowedModels`, `PROXY_FAST_FAIL`, `circuit breaker` …) → `ClaudeCliError("omniroute gateway error: …")` + подсказка;
 - лимит (`usage limit`, `session limit`, `rate limit`, `quota exceeded`, `too many requests`, `429`) → `UsageLimitError`, `session_wide = not via_gateway`; сообщение — совпавшая строка;
 - код ≠ 0, ничего не совпало → `ClaudeCliError("claude exited N: <detail>")`.
 Шлюз раньше лимита намеренно: "combo 'hard': fallback exhausted (429)" совпадает с обоими.
 Detail: хвост stderr 500 символов, иначе текст result, иначе последняя не-JSON строка stdout.
-Подсказка: любой широкий маркер шлюза (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) добавляет дешёвые команды диагностики `omniroute` и ссылки на доки. Direct-прогоны тоже её получают (#7).
+Подсказка: любой широкий маркер шлюза (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) добавляет дешёвые команды диагностики `omniroute` и ссылки на доки; только вызовы через шлюз, direct-прогон её не получает.
 `arun_claude` и `stream_claude` оставляют `via_gateway` по умолчанию `True`.
 Сбой: каждая ошибка несёт `.stdout`.
 Module: `runner`, `parsing`, `errors`
@@ -214,9 +214,9 @@ Module: `runner`
 
 ### Выход
 
-`ClaudeResult`: `text`, `cost_usd` (`total_cost_usd` конверта; `0.0` по HTTP), `duration_ms`, `raw` (конверт или тело OpenAI), `stdout` (сырой вывод CLI; `""` по HTTP), `tier` (эхо kwarg; `None` по HTTP).
+`ClaudeResult`: `text`, `cost_usd` (`total_cost_usd` конверта; `0.0` по HTTP), `duration_ms`, `raw` (конверт или тело OpenAI), `stdout` (сырой вывод CLI; `""` по HTTP), `tier` (эхо kwarg на обоих маршрутах).
 Ошибки: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; все — `RuntimeError`. Вне семейства: `ValueError` на плохие kwargs.
-Какой маршрут ответил, не записывается; HTTP отличает только `stdout == ""`.
+Маршрут не хранится в поле: HTTP отличают `stdout == ""` и строка лога `via http`.
 Module: `runner`, `errors`
 
 ## Боковые потоки
@@ -256,4 +256,4 @@ Module: `parsing`
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- Открытых HIGH и MEDIUM нет. Открытые LOW (#7–#10, #16, #18) — в плане.
+- Открытых HIGH и MEDIUM нет. Открытые LOW (#10, #16, #18) — в плане.

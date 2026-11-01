@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A failed direct call (`direct=True`) is no longer reported as an OmniRoute gateway error and gets no OmniRoute diagnosis hint.
+- HTTP results echo `tier` like CLI results, and a successful HTTP call logs `claude ok via http` with the model, combo and duration.
+
+### Added
+
+- `claude_available(direct=True)` checks only for `claude`, for machines that make direct calls only.
+
 ## [0.1.9] - 2026-11-01
 
 ### Fixed

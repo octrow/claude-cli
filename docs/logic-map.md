@@ -125,7 +125,7 @@ Branches:
 - `model` in `COMBOS` → `free-stack`/`hard`; any other value sent as-is;
 - body is `{"model", "messages"}` only: no `temperature` (it would switch on the gateway's semantic cache), no `effort`.
 Redirects are not followed (the bearer key would be resent). Body capped at 8 MiB; the deadline is checked only between body reads, so connect, headers and one stalled read each get their own `timeout`.
-`raw` keeps the OpenAI body with `usage` renamed to `input_tokens`/`output_tokens`. `stdout=""`, `tier=None`.
+`raw` keeps the OpenAI body with `usage` renamed to `input_tokens`/`output_tokens`. `stdout=""`, `tier` echoed. Success logs `claude ok via http: model=… combo=… Nms` (INFO).
 Fails: transport, status, JSON or choices-shape error, or empty content → `HttpLlmError` (a `ClaudeCliError`). A non-dict `usage` is read as empty.
 Module: `http_api`
 
@@ -195,12 +195,12 @@ Decides: which error a failed run raises. Runs only when exit ≠ 0 or `is_error
 In: stdout+stderr with ANSI codes and three OmniRoute banner shapes stripped.
 Branches, first match wins:
 - "Not logged in" anywhere → `NotLoggedInError`;
-- gateway exhausted (`ALL_TARGETS_SKIPPED`, `no provider matched`, `fallback exhausted`, `allowedModels`, `PROXY_FAST_FAIL`, `circuit breaker` …) → `ClaudeCliError("omniroute gateway error: …")` + hint;
+- gateway call only: gateway exhausted (`ALL_TARGETS_SKIPPED`, `no provider matched`, `fallback exhausted`, `allowedModels`, `PROXY_FAST_FAIL`, `circuit breaker` …) → `ClaudeCliError("omniroute gateway error: …")` + hint;
 - usage limit (`usage limit`, `session limit`, `rate limit`, `quota exceeded`, `too many requests`, `429`) → `UsageLimitError`, `session_wide = not via_gateway`; message is the matching line;
 - exit ≠ 0, nothing matched → `ClaudeCliError("claude exited N: <detail>")`.
 Gateway before limit on purpose: "combo 'hard': fallback exhausted (429)" matches both.
 Detail: stderr tail 500 chars, else the result text, else the last non-JSON stdout line.
-Hint: any wider gateway marker (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) appends the cheapest `omniroute` diagnosis commands and doc links. Direct runs get it too (#7).
+Hint: any wider gateway marker (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) appends the cheapest `omniroute` diagnosis commands and doc links; gateway calls only, a direct run never gets it.
 `arun_claude` and `stream_claude` leave `via_gateway` at its default `True`.
 Fails: every error carries `.stdout`.
 Module: `runner`, `parsing`, `errors`
@@ -216,9 +216,9 @@ Module: `runner`
 
 ### Output
 
-`ClaudeResult`: `text`, `cost_usd` (envelope `total_cost_usd`; `0.0` on HTTP), `duration_ms`, `raw` (envelope or OpenAI body), `stdout` (raw CLI output; `""` on HTTP), `tier` (echo of the kwarg; `None` on HTTP).
+`ClaudeResult`: `text`, `cost_usd` (envelope `total_cost_usd`; `0.0` on HTTP), `duration_ms`, `raw` (envelope or OpenAI body), `stdout` (raw CLI output; `""` on HTTP), `tier` (echo of the kwarg, on both routes).
 Errors: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; all are `RuntimeError`. Outside that family: `ValueError` for bad kwargs.
-Which route answered is not recorded; only `stdout == ""` tells HTTP apart.
+The route is not a field: `stdout == ""` and the `via http` log line tell HTTP apart.
 Module: `runner`, `errors`
 
 ## Side flows
@@ -258,4 +258,4 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- No open HIGH or MEDIUM findings. Open LOW ones (#7–#10, #16, #18) are in the plan.
+- No open HIGH or MEDIUM findings. Open LOW ones (#10, #16, #18) are in the plan.
