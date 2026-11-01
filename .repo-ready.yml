@@ -1,2 +1,0 @@
-exempt:
-  complexity_cyclomatic: only tests/test_preflight.py test_preflight_spends_no_quota is over (cc 11), a flat test asserting each quota-free call; all src functions are <= 10, drop this exemption once that test is split or another function crosses 10

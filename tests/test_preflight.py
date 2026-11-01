@@ -14,6 +14,7 @@ from claude_cli.preflight import (
     QUOTA_FREE_SUBCOMMANDS,
     TIERS,
     doctor,
+    dry_run_plan,
     health,
     quota_status,
     simulate,
@@ -73,25 +74,25 @@ def test_preflight_failure_returns_false(monkeypatch):
     assert isinstance(detail, str) and detail
 
 
-def test_preflight_spends_no_quota(monkeypatch):
-    """Preflight helpers only invoke quota-free subcommands."""
+@pytest.mark.parametrize(
+    "helper",
+    [health, doctor, quota_status, lambda: simulate("hi", combo="free-first"), dry_run_plan],
+    ids=["health", "doctor", "quota_status", "simulate", "dry_run_plan"],
+)
+def test_preflight_spends_no_quota(monkeypatch, helper):
+    """Each preflight helper only invokes quota-free subcommands."""
     calls: list[list[str]] = []
 
     def _run(args, **kwargs):
         calls.append(list(args))
-        return FakeProc(returncode=0, stdout="ok", stderr="")
+        return FakeProc(returncode=0, stdout='{"command": "claude"}', stderr="")
 
     monkeypatch.setattr(subprocess, "run", _run)
-    assert health()[0] is True
-    assert doctor()[0] is True
-    assert quota_status()[0] is True
-    assert simulate("hi", combo="free-first")[0] is True
+    assert helper()[0] is True
     assert calls, "expected subprocess invocations"
     for args in calls:
-        assert args[:1] == ["omniroute"]
-        assert args[1] in QUOTA_FREE_SUBCOMMANDS
-        if args[1] == "run":
-            assert "--dry-run" in args
+        assert args[:1] == ["omniroute"] and args[1] in QUOTA_FREE_SUBCOMMANDS, args
+        assert args[1] != "run" or "--dry-run" in args, args
 
 
 def test_preflight_needs_no_live_gateway(monkeypatch):
