@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-01
+
 ### Security
 
 - `build_args` refuses a value that starts with `-` (model, tools, profile and the rest), since the CLI would read it as another flag.
