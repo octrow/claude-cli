@@ -77,6 +77,19 @@ and `ping`. A tool-less `stream_claude` also goes over HTTP and then emits no ev
 Decisions, migration notes and what still runs on the CLI:
 [docs/OMNIROUTE.md](https://github.com/octrow/claude-cli/blob/main/docs/OMNIROUTE.md#http-route-2026-10).
 
+## How it differs
+
+* **[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk)** (`claude-agent-sdk`): the official
+  way to drive Claude Code from code, with the full agent loop (tools, hooks, sessions). Use it
+  when you build an agent or a product. Its docs ask third-party products to use API keys rather
+  than a claude.ai login. This library is for the opposite case: your own scripts, on your own
+  subscription, one prompt in and text or JSON out, with no dependencies.
+* **[`anthropic`](https://github.com/anthropics/anthropic-sdk-python)**: the Messages API, billed
+  per token against an `ANTHROPIC_API_KEY`. Use it when you have a key and want every API feature.
+* **`subprocess.run(["claude", "-p", ...])`**: what this library replaced in my projects. The
+  hard parts are the flags that keep a headless call isolated, killing the whole process tree on
+  timeout, telling a usage limit from a login problem, and parsing the envelope.
+
 ## Invariants
 
 These are the reason the library exists.
