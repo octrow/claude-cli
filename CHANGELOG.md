@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-01
+
 ### Fixed
 
 - `allowed_tools` without `tools` raises `ValueError`; it used to be dropped from argv, leaving a run with no tools and no error.
