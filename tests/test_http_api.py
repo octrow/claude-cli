@@ -424,3 +424,60 @@ def test_claude_model_ids_stay_on_the_cli(auto, http, cli):
 def test_combo_names_still_use_http(auto, http, cli):
     assert run_claude("p", model="sub-first").text == "hi"
     assert http.calls[0][1]["model"] == "sub-first" and not cli
+
+
+# --- backend values are checked, "api" never turns into a silent CLI call (#14) ------
+
+
+@pytest.mark.parametrize("value", ["CLI", "http", "Auto"])
+def test_unknown_backend_kwarg_is_refused(auto, http, cli, value):
+    with pytest.raises(ValueError, match="backend"):
+        run_claude("p", backend=value)
+    assert not http.calls and not cli
+
+
+def test_unknown_backend_env_is_refused(auto, monkeypatch, http, cli):
+    monkeypatch.setenv("CLAUDE_CLI_BACKEND", "CLI")
+    with pytest.raises(ValueError, match="CLAUDE_CLI_BACKEND"):
+        run_claude("p")
+    assert not http.calls and not cli
+
+
+@pytest.mark.parametrize(
+    "kw", [{"tools": "Read"}, {"output_format": "stream-json"}, {"model": "claude-opus-5-5"}]
+)
+def test_api_refuses_a_call_only_the_cli_can_carry(auto, http, cli, kw):
+    with pytest.raises(ValueError, match="api"):
+        run_claude("p", backend="api", **kw)
+    assert not http.calls and not cli
+
+
+def test_api_with_direct_is_refused(auto, http, cli):
+    with pytest.raises(ValueError, match="direct"):
+        run_claude("p", backend="api", direct=True)
+    assert not cli
+
+
+def test_direct_ignores_an_api_env(auto, monkeypatch, http, cli):
+    monkeypatch.setenv("CLAUDE_CLI_BACKEND", "api")  # a process-wide default, not this call's ask
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p", direct=True)
+
+
+# --- a malformed `usage` is an HttpLlmError, so auto still falls back (#15) ----------
+
+
+@pytest.mark.parametrize("usage", ["n/a", [1, 2], 3])
+def test_non_dict_usage_is_tolerated(auto, http, cli, usage):
+    http.body = json.dumps({**REPLY, "usage": usage}).encode()
+    res = run_claude("p")
+    assert res.text == "hi" and res.raw["usage"] == {"input_tokens": None, "output_tokens": None}
+
+
+# --- a trailing slash in OMNIROUTE_URL (#17) ------------------------------------------
+
+
+def test_trailing_slash_in_url_is_dropped(auto, monkeypatch, http):
+    monkeypatch.setenv("OMNIROUTE_URL", "http://localhost:20128/")
+    omniroute_chat("p", timeout=5)
+    assert http.calls[0][0].full_url == "http://localhost:20128/v1/chat/completions"

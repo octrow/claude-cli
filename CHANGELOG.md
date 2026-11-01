@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `backend` / `CLAUDE_CLI_BACKEND` values other than `auto`, `cli`, `api` raise `ValueError`; a typo like `CLI` used to run as `auto` and reach the gateway.
+- `backend="api"` raises `ValueError` for a call that needs the CLI (tools, project cwd, stream-json, a `claude-*` id) or for `direct=True`, instead of silently running the CLI.
+- A non-dict `usage` in an HTTP answer is read as empty instead of raising `AttributeError` past the CLI fallback.
+- A trailing `/` in `OMNIROUTE_URL` is dropped, so the request no longer goes to `//v1/chat/completions`.
+
 ## [0.1.8] - 2026-11-01
 
 ### Fixed

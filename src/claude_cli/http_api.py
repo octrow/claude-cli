@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 # alias -> combo, the same mapping the gateway applies to `--model` for the CLI;
 # any other value (a bare combo name) passes through unchanged
 COMBOS = {"haiku": "free-stack", "sonnet": "free-stack", "opus": "hard"}
+BACKENDS = ("auto", "cli", "api")
 COOLDOWN_SECS = 600
 #: Statuses that reject this one request (malformed, too large, unknown model): the next
 #: call may pass, so they fall back to the CLI without parking HTTP for the whole process.
@@ -102,7 +103,7 @@ def gateway_url() -> str:
     if parts.username or parts.password:
         raise HttpLlmError("OMNIROUTE_URL must not embed credentials; the key goes in a header")
     if parts.scheme == "https" or (parts.scheme == "http" and _is_loopback(parts.hostname)):
-        return raw
+        return raw.rstrip("/")  # the path is appended: `…20128/` must not become `//v1`
     raise HttpLlmError(
         f"OMNIROUTE_URL needs https for host {parts.hostname!r} (http: loopback only)"
     )
@@ -170,7 +171,8 @@ def omniroute_chat(
     if not isinstance(text, str) or not text.strip():
         raise HttpLlmError("empty completion")
     # raw keeps the OpenAI body, but `usage` in the CLI envelope's keys so meters read it
-    usage = data.get("usage") or {}
+    usage = data.get("usage")
+    usage = usage if isinstance(usage, dict) else {}  # a gateway's "n/a" must not crash
     raw = {
         **data,
         "usage": {
@@ -197,16 +199,34 @@ def _raise_status_error(exc: HttpLlmError) -> None:
     _raise_classified(combined, str(exc), exc.stdout, tier=None, via_gateway=True)
 
 
+def resolve_backend(backend: str) -> str:
+    """The backend in force: ``CLAUDE_CLI_BACKEND`` over the kwarg, never over an explicit "cli".
+
+    An explicit "cli" is a requirement (``ping`` must prove the CLI itself), not a default the
+    env may flip. Any value outside :data:`BACKENDS` is refused: a typo (``CLI``) used to run
+    as "auto" and quietly reach the gateway the caller meant to switch off.
+    """
+    source, value = "backend", backend
+    if backend != "cli" and (env := os.environ.get("CLAUDE_CLI_BACKEND")):
+        source, value = "CLAUDE_CLI_BACKEND", env
+    if value not in BACKENDS:
+        raise ValueError(f"{source}={value!r}: expected one of {', '.join(BACKENDS)}")
+    return value
+
+
 def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult | None:
     """The HTTP answer, or None when run_claude should use the CLI.
 
     ``backend``: "cli" never, "api" always (errors propagate, no cooldown), "auto" when
     a key exists, the gateway is not cooling down and the call needs nothing CLI-only.
-    ``CLAUDE_CLI_BACKEND`` overrides any kwarg except an explicit "cli": that one is a
-    requirement (``ping`` must prove the CLI itself), not a default the env may flip.
+    The value is resolved by :func:`resolve_backend`; "api" with a CLI-only call is refused.
     """
-    if backend != "cli":
-        backend = os.environ.get("CLAUDE_CLI_BACKEND") or backend
+    backend = resolve_backend(backend)
+    if backend == "api" and cli_only:
+        raise ValueError(
+            "backend='api' is HTTP only, but this call needs the CLI (tools, a project cwd, "
+            "slash commands, remote options, stream-json or a claude-* model id)"
+        )
     if backend == "cli" or cli_only:
         return None
     if backend == "api":

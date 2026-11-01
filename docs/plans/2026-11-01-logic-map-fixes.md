@@ -24,10 +24,10 @@ Severity: HIGH — неверный результат для пользоват
 | 11 ✅ | 6 | Валидация kwargs (`_check_routing`, `_refuse_flag_like`) живёт в `build_args`, который вызывается после `_http_first` (`runner.py:504-535`). `run_claude("x", tier="bogus", model="-x")` отвечает по HTTP, а при упавшем шлюзе или cooldown тот же вызов даёт `ValueError`. Опечатка в конфиге всплывает только в дни отката. | Проверять kwargs до `_http_first`. | MEDIUM |
 | 12 ✅ | 8, Output | Нет `omniroute`/`claude` в PATH или нет каталога `cwd` → голый `FileNotFoundError` из `Popen`/`create_subprocess_exec` (`runner.py:555`, `:661`, `:818`). `errors.py:3-6` обещает, что `except RuntimeError` даёт мягкую деградацию; вызывающий падает. В `auto` проявляется только после сбоя HTTP. | Оборачивать `OSError` спавна в `ClaudeCliError`. | MEDIUM |
 | 13 ✅ | 5 | Любой `HttpLlmError`, включая 4xx одного запроса (400/422 на непринятый id модели, см. #4), выключает HTTP на 600 с для всего процесса (`http_api.py:170-171`): весь трафик уходит в CLI и подписку. Задокументировано (`docs/OMNIROUTE.md`, «Откат»), но цена не названа. | Вопрос: не включать cooldown на 4xx, кроме 401/429. | MEDIUM |
-| 14 | 3 | `backend` не валидируется: `cli_only` проверяется раньше `api` (`http_api.py:162`), поэтому `backend="api", tools="Read"` или `direct=True` молча запускает CLI вопреки docstring «"api" only HTTP» (`runner.py:488`); любое значение кроме `cli`/`api` (`CLAUDE_CLI_BACKEND=CLI`, `backend="http"`) работает как `auto`. | `ValueError` на неизвестное значение; при `api` + CLI-only сигнале — ошибка вместо тихого CLI. | LOW |
-| 15 | 4 | Не-dict `usage` в ответе (`"usage": "n/a"`) → `AttributeError` в `http_api.py:146`, вне `try`; `try_http` ловит только `HttpLlmError`, так что `auto`-вызов падает без отката и cooldown. | Проверять `isinstance(usage, dict)`. | LOW |
+| 14 ✅ | 3 | `backend` не валидируется: `cli_only` проверяется раньше `api` (`http_api.py:162`), поэтому `backend="api", tools="Read"` или `direct=True` молча запускает CLI вопреки docstring «"api" only HTTP» (`runner.py:488`); любое значение кроме `cli`/`api` (`CLAUDE_CLI_BACKEND=CLI`, `backend="http"`) работает как `auto`. | `ValueError` на неизвестное значение; при `api` + CLI-only сигнале — ошибка вместо тихого CLI. | LOW |
+| 15 ✅ | 4 | Не-dict `usage` в ответе (`"usage": "n/a"`) → `AttributeError` в `http_api.py:146`, вне `try`; `try_http` ловит только `HttpLlmError`, так что `auto`-вызов падает без отката и cooldown. | Проверять `isinstance(usage, dict)`. | LOW |
 | 16 | 2, 6 | `allowed_tools` без `tools` уводит вызов в CLI (`runner.py:451`), но в argv попадает `--tools ""` и нет `--allowed-tools` (`:265-269`): прогон без инструментов, без ошибки. | `ValueError`, если `allowed_tools` задан без `tools`. | LOW |
-| 17 | 4 | `OMNIROUTE_URL=http://localhost:20128/` даёт `…20128//v1/chat/completions` (`http_api.py:121`); на 404 каждый `auto`-вызов уходит в cooldown и CLI. | `rstrip("/")`. | LOW |
+| 17 ✅ | 4 | `OMNIROUTE_URL=http://localhost:20128/` даёт `…20128//v1/chat/completions` (`http_api.py:121`); на 404 каждый `auto`-вызов уходит в cooldown и CLI. | `rstrip("/")`. | LOW |
 | 18 | JSON from prose | `extract_json('Use {name}: {"a": 1}')` → `JSONDecodeError`: `raw_decode` пробует только первую `{` (`parsing.py:65-69`); то же в `parse_envelope` (`:133-136`). | Перебирать `{` до первого успешного `raw_decode`. | LOW |
 
 ## Решения по вопросам
@@ -38,8 +38,7 @@ Severity: HIGH — неверный результат для пользоват
 
 ## Порядок работы
 
-1. #14, #15, #17 — `http_api`: валидация `backend`, не-dict `usage`, `/` в конце `OMNIROUTE_URL`.
-2. #7–#10, #16, #18 — попутно.
+1. #7–#10, #16, #18 — попутно.
 
 ## Живой прогон
 

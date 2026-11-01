@@ -43,7 +43,7 @@ ClaudeResult | NotLoggedInError | UsageLimitError | ClaudeCliError
 | CLI direct | `direct=True` (есть только у `run_claude`) | 1, 6, 7, 10 | нет префикса `omniroute`, нет HTTP, env шлюза убран, лимит `session_wide=True` |
 | CLI принудительно | `model`, начинающийся с `claude-`, `tools`, `allowed_tools`, `slash_commands`, remote-опции, `output_format="stream-json"`, `cwd` с `CLAUDE.md` или `.claude` | 2 | HTTP пропущен |
 | HTTP выключен | `CLAUDE_CLI_BACKEND`/`backend` = `cli`; нет `OMNIROUTE_API_KEY`; идёт cooldown | 3 | CLI через шлюз |
-| Только HTTP | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | без отката и cooldown, летит `HttpLlmError`; всё равно CLI при `direct` или сигнале шага 2 (#14) |
+| Только HTTP | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | без отката и cooldown, ошибки летят наружу; сигнал шага 2 или `direct` вместе с ним → `ValueError` |
 | Модель → комбо | словарь `COMBOS` на HTTP; glob-маппинг шлюза на CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; голое имя комбо как есть на обоих; id `claude-*` только через CLI (glob) |
 | Класс сбоя | регэкспы по очищенным stdout+stderr упавшего прогона | 10 | тип исключения, `session_wide`, подсказка про шлюз |
 
@@ -81,7 +81,7 @@ Module: `runner`, `cache`
 Вход: kwarg `direct`.
 Ветки:
 - сначала kwargs проверяются проверками шага 6, до выбора маршрута;
-- `direct=True` (только `run_claude`) → шаги 2–5 пропущены, шаг 6 без префикса шлюза;
+- `direct=True` (только `run_claude`) → шаги 2–5 пропущены, шаг 6 без префикса шлюза; kwarg `backend="api"` или неизвестное значение → `ValueError` (env `CLAUDE_CLI_BACKEND` здесь не учитывается);
 - иначе → шаг 2.
 Сбой: плохие kwargs → `ValueError` (см. шаг 6), ничего не отправляется.
 Module: `runner`
@@ -105,11 +105,13 @@ Module: `runner`
 Вход: kwarg `backend`, env `CLAUDE_CLI_BACKEND`, `cli_only`, cooldown, ключ.
 Ветки:
 - непустой env `CLAUDE_CLI_BACKEND` заменяет kwarg, если kwarg не `cli`;
-- `cli` или `cli_only` → CLI (проверяется раньше `api`, поэтому `api` + tools всё равно запускает CLI);
+- значение вне `auto`/`cli`/`api` (`CLI`, `http` …) → `ValueError` с именем kwarg или env-переменной;
+- `api` + `cli_only` → `ValueError`: `api` никогда не превращается в вызов CLI;
+- `cli` или `cli_only` → CLI;
 - `api` → шаг 4, ошибки летят наружу;
-- любое другое значение (`auto`, `CLI`, `http` …) работает как `auto`: шаг 4, только если cooldown процесса прошёл и `api_key()` нашёл ключ.
+- `auto` → шаг 4, только если cooldown процесса прошёл и `api_key()` нашёл ключ.
 Без ключа: env `OMNIROUTE_API_KEY`, иначе первая строка `OMNIROUTE_API_KEY=…` (можно с `export `, кавычки снимаются) в `~/.omniroute/.env`; пустое значение или нечитаемый файл → ключа нет → CLI.
-Сбой: нет.
+Сбой: `ValueError`, как выше, до любого запроса.
 Module: `http_api`
 
 ### 4. HTTP-вызов
@@ -117,12 +119,12 @@ Module: `http_api`
 Решает: ответ через OpenAI-совместимый API шлюза.
 Вход: промпт, `model`, `timeout`. Выход: `ClaudeResult(text, cost_usd=0.0, duration_ms, raw)`.
 Ветки:
-- URL `OMNIROUTE_URL` (по умолчанию `http://localhost:20128`) + `/v1/chat/completions`: https куда угодно, http только на loopback, `user:pass@` отклоняется;
+- URL `OMNIROUTE_URL` (по умолчанию `http://localhost:20128`, `/` в конце отбрасывается) + `/v1/chat/completions`: https куда угодно, http только на loopback, `user:pass@` отклоняется;
 - `model` есть в `COMBOS` → `free-stack`/`hard`; любое другое значение уходит как есть;
 - тело только `{"model", "messages"}`: без `temperature` (он включил бы семантический кэш шлюза), без `effort`.
 Редиректы не выполняются (ключ ушёл бы повторно). Тело ограничено 8 MiB; дедлайн проверяется только между чтениями тела, так что connect, заголовки и одно зависшее чтение получают каждый свой `timeout`.
 `raw` хранит тело OpenAI, `usage` переименован в `input_tokens`/`output_tokens`. `stdout=""`, `tier=None`.
-Сбой: транспорт, статус, JSON, форма `choices` или пустой текст → `HttpLlmError` (подкласс `ClaudeCliError`). Не-dict `usage` даёт `AttributeError`, и шаг 5 не срабатывает (#15).
+Сбой: транспорт, статус, JSON, форма `choices` или пустой текст → `HttpLlmError` (подкласс `ClaudeCliError`). Не-dict `usage` читается как пустой.
 Module: `http_api`
 
 ### 5. Сбой HTTP
@@ -254,4 +256,4 @@ Module: `parsing`
 ## Известные дыры
 
 Подробности и правки — в плане (номер в скобках).
-- Открытых HIGH и MEDIUM нет. Открытые LOW (#7–#10, #14–#18) — в плане.
+- Открытых HIGH и MEDIUM нет. Открытые LOW (#7–#10, #16, #18) — в плане.

@@ -45,7 +45,7 @@ The route is decided in four places by independent signals, not one registry.
 | CLI direct | `direct=True` (only `run_claude` has it) | 1, 6, 7, 10 | no `omniroute` prefix, no HTTP, gateway env dropped, limit is `session_wide=True` |
 | CLI forced | `model` starting with `claude-`, `tools`, `allowed_tools`, `slash_commands`, remote opts, `output_format="stream-json"`, `cwd` holding `CLAUDE.md` or `.claude` | 2 | HTTP skipped |
 | HTTP off | `CLAUDE_CLI_BACKEND`/`backend` = `cli`; no `OMNIROUTE_API_KEY`; cooldown active | 3 | CLI through gateway |
-| HTTP only | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | no fallback, no cooldown, `HttpLlmError` raised; still CLI when `direct` or a step-2 signal is set (#14) |
+| HTTP only | `CLAUDE_CLI_BACKEND`/`backend` = `api` | 3, 5 | no fallback, no cooldown, errors raised; a step-2 signal or `direct` with it → `ValueError` |
 | Model → combo | `COMBOS` dict on HTTP; gateway glob mappings on CLI | 4, 6 | `haiku`/`sonnet` → `free-stack`, `opus` → `hard`; a bare combo name verbatim on both; `claude-*` ids only on the CLI (glob) |
 | Failure class | regexes over cleaned stdout+stderr of a failed run | 10 | which exception type, `session_wide`, gateway hint |
 
@@ -83,7 +83,7 @@ Decides: whether OmniRoute is used at all.
 In: `direct` kwarg.
 Branches:
 - kwargs are validated first, by the step 6 checks, before any route is tried;
-- `direct=True` (`run_claude` only) → skip steps 2–5, go to step 6 with no gateway prefix;
+- `direct=True` (`run_claude` only) → skip steps 2–5, go to step 6 with no gateway prefix; kwarg `backend="api"` or an unknown value → `ValueError` (env `CLAUDE_CLI_BACKEND` is ignored here);
 - otherwise → step 2.
 Fails: bad kwargs → `ValueError` (see step 6), nothing is sent.
 Module: `runner`
@@ -107,11 +107,13 @@ Decides: try HTTP now, or go to the CLI.
 In: `backend` kwarg, env `CLAUDE_CLI_BACKEND`, `cli_only`, cooldown, key.
 Branches:
 - env `CLAUDE_CLI_BACKEND`, when non-empty, replaces the kwarg, unless the kwarg is `cli`;
-- `cli` or `cli_only` → CLI (checked before `api`, so `api` + tools still runs the CLI);
+- value outside `auto`/`cli`/`api` (`CLI`, `http` …) → `ValueError` naming the kwarg or the env var;
+- `api` + `cli_only` → `ValueError`: `api` never turns into a CLI call;
+- `cli` or `cli_only` → CLI;
 - `api` → step 4, errors propagate;
-- any other value (`auto`, `CLI`, `http` …) acts as `auto`: step 4 only if the process-wide cooldown has passed and `api_key()` finds a key.
+- `auto` → step 4 only if the process-wide cooldown has passed and `api_key()` finds a key.
 No key: `OMNIROUTE_API_KEY` env, else the first `OMNIROUTE_API_KEY=…` line (optional `export `, quotes stripped) in `~/.omniroute/.env`; empty value or unreadable file → no key → CLI.
-Fails: n/a.
+Fails: `ValueError` as above, before any request.
 Module: `http_api`
 
 ### 4. HTTP call
@@ -119,12 +121,12 @@ Module: `http_api`
 Decides: the answer, over the gateway's OpenAI-format API.
 In: prompt, `model`, `timeout`. Out: `ClaudeResult(text, cost_usd=0.0, duration_ms, raw)`.
 Branches:
-- URL `OMNIROUTE_URL` (default `http://localhost:20128`) + `/v1/chat/completions`: https anywhere, http only on loopback, `user:pass@` refused;
+- URL `OMNIROUTE_URL` (default `http://localhost:20128`, trailing `/` dropped) + `/v1/chat/completions`: https anywhere, http only on loopback, `user:pass@` refused;
 - `model` in `COMBOS` → `free-stack`/`hard`; any other value sent as-is;
 - body is `{"model", "messages"}` only: no `temperature` (it would switch on the gateway's semantic cache), no `effort`.
 Redirects are not followed (the bearer key would be resent). Body capped at 8 MiB; the deadline is checked only between body reads, so connect, headers and one stalled read each get their own `timeout`.
 `raw` keeps the OpenAI body with `usage` renamed to `input_tokens`/`output_tokens`. `stdout=""`, `tier=None`.
-Fails: transport, status, JSON or choices-shape error, or empty content → `HttpLlmError` (a `ClaudeCliError`). A non-dict `usage` raises `AttributeError` instead, which skips step 5 (#15).
+Fails: transport, status, JSON or choices-shape error, or empty content → `HttpLlmError` (a `ClaudeCliError`). A non-dict `usage` is read as empty.
 Module: `http_api`
 
 ### 5. HTTP failure
@@ -256,4 +258,4 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- No open HIGH or MEDIUM findings. Open LOW ones (#7–#10, #14–#18) are in the plan.
+- No open HIGH or MEDIUM findings. Open LOW ones (#7–#10, #16, #18) are in the plan.

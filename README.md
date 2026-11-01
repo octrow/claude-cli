@@ -76,7 +76,8 @@ and `ping`. A tool-less `stream_claude` also goes over HTTP and then emits no ev
 
 * `backend="cli"` (or `CLAUDE_CLI_BACKEND=cli`, which wins over the kwarg) turns HTTP off;
   an explicit `backend="cli"` is never flipped back by the env;
-  `backend="api"` uses HTTP only.
+  `backend="api"` uses HTTP only, and a call that needs the CLI raises `ValueError` there; any
+  other value raises `ValueError` too.
 * HTTP results have `cost_usd=0.0`, and `effort` is ignored there.
 * No `temperature` is sent, because it would turn on OmniRoute's semantic cache.
 * Test suites that fake the CLI must set `CLAUDE_CLI_BACKEND=cli`, or they reach the live gateway.

@@ -189,6 +189,15 @@ def _refuse_flag_like(values: dict[str, str | None]) -> None:
             raise ValueError(f"{name}={value!r} starts with '-' and would be read as a flag")
 
 
+def _check_direct_backend(backend: str) -> None:
+    """A direct call never uses HTTP, so only the kwarg is checked: the env is a process-wide
+    default for gateway calls, not something a direct call asked for."""
+    if backend == "api":
+        raise ValueError("backend='api' is HTTP only; direct calls run `claude -p` locally")
+    if backend not in ("auto", "cli"):
+        raise ValueError(f"backend={backend!r}: expected one of auto, cli, api")
+
+
 def _check_routing(tier: str | None, direct: bool, *, gateway_set: bool) -> None:
     if tier is not None and tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}: expected one of {', '.join(TIERS)}")
@@ -507,7 +516,8 @@ def run_claude(
     limit is then the local account's and ends the session.
 
     ``backend``: "auto" tries the OmniRoute HTTP API first for tool-less calls and falls
-    back to the CLI; "cli" never uses HTTP; "api" only HTTP (see :mod:`.http_api`).
+    back to the CLI; "cli" never uses HTTP; "api" only HTTP (see :mod:`.http_api`); any
+    other value, or "api" for a call that needs the CLI, raises ``ValueError``.
     ``CLAUDE_CLI_BACKEND`` in the env overrides it, except an explicit ``backend="cli"``.
 
     ``cwd`` runs inside a real project (its ``CLAUDE.md`` is discovered) instead of
@@ -543,6 +553,8 @@ def run_claude(
         direct=direct,
     )
     argv(mcp_config="")  # validate before HTTP, or a bad kwarg fails only on fallback days
+    if direct:
+        _check_direct_backend(backend)
     started = time.monotonic()  # the HTTP attempt and the CLI share one timeout
     if (
         not direct
