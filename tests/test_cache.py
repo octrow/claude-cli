@@ -118,8 +118,13 @@ def test_cached_run_tools_do_not_share_a_row():
 def test_cached_run_forwards_kwargs():
     calls: list = []
     cached_run(
-        _runner(calls=calls), DictCacheStore(), "p",
-        model="opus", effort="high", timeout=10, output_format="stream-json",
+        _runner(calls=calls),
+        DictCacheStore(),
+        "p",
+        model="opus",
+        effort="high",
+        timeout=10,
+        output_format="stream-json",
     )
     _, model, kwargs = calls[0]
     assert model == "opus"

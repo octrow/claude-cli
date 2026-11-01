@@ -110,6 +110,7 @@ def test_result_and_error_carry_raw_stdout(fake_run):
 
 # --- flag construction ------------------------------------------------------
 
+
 def test_build_args_isolation_flags():
     args = build_args(mcp_config="/tmp/mcp.json")
     assert args[:5] == ["omniroute", "run", "claude", "--", "-p"]
@@ -190,6 +191,7 @@ def test_mcp_config_file_is_empty_servers(fake_run, monkeypatch):
 
 
 # --- result handling --------------------------------------------------------
+
 
 def test_envelope_result(fake_run):
     fake_run()
@@ -367,6 +369,7 @@ def test_claude_available(monkeypatch):
 
 # --- async ------------------------------------------------------------------
 
+
 class FakeAsyncProc:
     def __init__(self, returncode, stdout, stderr):
         self.returncode = returncode
@@ -412,6 +415,7 @@ async def test_arun_claude_not_logged_in(fake_async):
 
 
 # --- ping --------------------------------------------------------------------
+
 
 def test_ping_success(monkeypatch):
     def fake_run_claude(prompt, *, model=None, timeout=None, **_kwargs):
@@ -486,6 +490,7 @@ def test_an_ordinary_failure_carries_no_omniroute_pointer(fake_run):
 
 
 # --- routing pass-throughs (omniroute-full-utilization) -----------------------
+
 
 def test_build_args_routing_defaults_off():
     args = build_args(mcp_config="m")
@@ -563,6 +568,7 @@ def test_tier_leaves_claude_model_valid():
 
 # --- execution classification (omniroute-full-utilization) --------------------
 
+
 def test_all_targets_skipped_is_gateway_not_limit(fake_run):
     fake_run(returncode=1, stderr="503 ALL_TARGETS_SKIPPED: no target accepted")
     with pytest.raises(ClaudeCliError) as exc:
@@ -630,7 +636,10 @@ def test_gateway_exhaustion_is_not_reported_as_a_usage_limit(fake_run):
     _GATEWAY_RE and _USAGE_LIMIT_RE. Before the reorder the limit branch won and
     a batch aborted on what was really "the gateway had nothing left right now".
     """
-    fake_run(returncode=1, stderr="[omniroute] combo 'hard': fallback exhausted, all 6 targets failed (429)")
+    fake_run(
+        returncode=1,
+        stderr="[omniroute] combo 'hard': fallback exhausted, all 6 targets failed (429)",
+    )
     with pytest.raises(ClaudeCliError) as exc:
         run_claude("x")
     assert not isinstance(exc.value, UsageLimitError)
@@ -711,7 +720,8 @@ async def test_arun_claude_kills_the_child_when_cancelled(monkeypatch):
     import sys
 
     monkeypatch.setattr(
-        runner_mod, "build_args",
+        runner_mod,
+        "build_args",
         lambda **_kw: [sys.executable, "-c", "import time; time.sleep(30)"],
     )
     spawned = []
@@ -829,6 +839,7 @@ async def test_arun_claude_caps_retries_and_takes_allowed_tools(fake_async, monk
 
 # --- direct mode: the local `claude` login pays, no OmniRoute -----------------
 
+
 def test_build_args_direct_calls_claude_itself():
     args = build_args(mcp_config="m", model="claude-sonnet-5-5", direct=True)
     assert args[:4] == ["claude", "-p", "--model", "claude-sonnet-5-5"]
@@ -840,8 +851,7 @@ def test_build_args_direct_refuses_gateway_options():
         build_args(mcp_config="m", direct=True, profile="high")
 
 
-def test_direct_run_drops_a_gateway_base_url_and_its_limit_ends_the_session(
-        fake_run, monkeypatch):
+def test_direct_run_drops_a_gateway_base_url_and_its_limit_ends_the_session(fake_run, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://localhost:20128")
     calls = fake_run()
     run_claude("x", direct=True)

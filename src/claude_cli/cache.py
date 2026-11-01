@@ -186,8 +186,12 @@ def cached_run(
     # folded into the model part only when set, so existing rows stay valid.
     routing = ",".join(f"{k}={kwargs[k]}" for k in _ROUTING_KWARGS if kwargs.get(k))
     key = cache_key(
-        f"{model}|{routing}" if routing else model, prompt, schema=schema,
-        version=version, purpose=purpose, tools=kwargs.get("tools", ""),
+        f"{model}|{routing}" if routing else model,
+        prompt,
+        schema=schema,
+        version=version,
+        purpose=purpose,
+        tools=kwargs.get("tools", ""),
     )
     if not refresh:
         hit = store.get(key)
@@ -197,9 +201,13 @@ def cached_run(
     result = runner(prompt, model=model, **kwargs)
     try:
         store.put(
-            key, result.text, model=model, purpose=purpose,
+            key,
+            result.text,
+            model=model,
+            purpose=purpose,
             prompt=prompt if store_prompt else None,
-            cost_usd=result.cost_usd, duration_ms=result.duration_ms,
+            cost_usd=result.cost_usd,
+            duration_ms=result.duration_ms,
         )
     except (sqlite3.Error, OSError) as exc:
         log.warning("llm cache write failed: %s", exc)

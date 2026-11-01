@@ -13,8 +13,15 @@ from typing import Any
 
 #: Metadata keys lifted from a stream-json ``result`` event (tlf/digest.py).
 _META_KEYS = (
-    "usage", "total_cost_usd", "duration_ms", "duration_api_ms",
-    "num_turns", "session_id", "model", "modelUsage", "is_error",
+    "usage",
+    "total_cost_usd",
+    "duration_ms",
+    "duration_api_ms",
+    "num_turns",
+    "session_id",
+    "model",
+    "modelUsage",
+    "is_error",
 )
 
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)

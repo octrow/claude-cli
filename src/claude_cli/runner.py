@@ -245,9 +245,11 @@ def build_args(
     if permission_mode:
         args += ["--permission-mode", permission_mode]
     args += [
-        "--setting-sources", setting_sources,
+        "--setting-sources",
+        setting_sources,
         "--strict-mcp-config",
-        "--mcp-config", mcp_config,
+        "--mcp-config",
+        mcp_config,
     ]
     return args
 
@@ -288,7 +290,7 @@ def _matched_line(combined: str, hit: re.Match) -> str:
     """
     start = combined.rfind("\n", 0, hit.start()) + 1
     end = combined.find("\n", hit.end())
-    return combined[start:end if end != -1 else len(combined)].strip()[:500]
+    return combined[start : end if end != -1 else len(combined)].strip()[:500]
 
 
 def _finish(
@@ -371,9 +373,7 @@ def _finish(
 
     cost = env.get("total_cost_usd")
     duration = env.get("duration_ms")
-    log.info(
-        "claude ok: %dms, cost=%s (subscription)", duration or elapsed_ms, cost
-    )
+    log.info("claude ok: %dms, cost=%s (subscription)", duration or elapsed_ms, cost)
     return ClaudeResult(
         text=text,
         cost_usd=float(cost) if cost is not None else None,
@@ -384,15 +384,32 @@ def _finish(
     )
 
 
-def _http_first(prompt, backend, model, timeout, tools, allowed_tools, output_format,
-                slash_commands, cwd, remote_opts) -> ClaudeResult | None:
+def _http_first(
+    prompt,
+    backend,
+    model,
+    timeout,
+    tools,
+    allowed_tools,
+    output_format,
+    slash_commands,
+    cwd,
+    remote_opts,
+) -> ClaudeResult | None:
     """The HTTP route's answer, or None. Calls needing tools, the raw stream-json events,
     a project dir (CLAUDE.md / .claude), slash commands or a remote override stay on the
     CLI. A neutral cwd (no project context) changes nothing over HTTP, so it doesn't count."""
     from .http_api import try_http  # late: http_api imports ClaudeResult from here
+
     project = bool(cwd) and any((Path(cwd) / m).exists() for m in ("CLAUDE.md", ".claude"))
-    cli_only = bool(tools or allowed_tools or slash_commands or project or any(remote_opts)
-                    or output_format == "stream-json")
+    cli_only = bool(
+        tools
+        or allowed_tools
+        or slash_commands
+        or project
+        or any(remote_opts)
+        or output_format == "stream-json"
+    )
     return try_http(prompt, backend=backend, cli_only=cli_only, model=model, timeout=timeout)
 
 
@@ -440,29 +457,65 @@ def run_claude(
     Raises :class:`UsageLimitError`, :class:`NotLoggedInError` or
     :class:`ClaudeCliError` — all ``RuntimeError`` subclasses.
     """
-    if not direct and (res := _http_first(prompt, backend, model, timeout, tools,
-                                          allowed_tools, output_format, slash_commands, cwd,
-                                          (remote, base_url, context, provider))) is not None:
+    if (
+        not direct
+        and (
+            res := _http_first(
+                prompt,
+                backend,
+                model,
+                timeout,
+                tools,
+                allowed_tools,
+                output_format,
+                slash_commands,
+                cwd,
+                (remote, base_url, context, provider),
+            )
+        )
+        is not None
+    ):
         return res
     log.info(
         "claude call: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s%s",
-        model, effort, len(prompt), tools, cwd or "(temp)", tier, " direct" if direct else "",
+        model,
+        effort,
+        len(prompt),
+        tools,
+        cwd or "(temp)",
+        tier,
+        " direct" if direct else "",
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
-            model=model, effort=effort, output_format=output_format,
-            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands, setting_sources=setting_sources,
+            model=model,
+            effort=effort,
+            output_format=output_format,
+            tools=tools,
+            allowed_tools=allowed_tools,
+            mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands,
+            setting_sources=setting_sources,
             permission_mode=permission_mode,
-            tier=tier, remote=remote, base_url=base_url,
-            context=context, provider=provider, profile=profile, direct=direct,
+            tier=tier,
+            remote=remote,
+            base_url=base_url,
+            context=context,
+            provider=provider,
+            profile=profile,
+            direct=direct,
         )
         # Popen, not subprocess.run: run's timeout kills only the direct child, which
         # orphans the real `claude` under `omniroute run` (see _kill_tree).
         proc = subprocess.Popen(
-            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            cwd=str(cwd) if cwd else work, text=True, start_new_session=True,
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(cwd) if cwd else work,
+            text=True,
+            start_new_session=True,
             env=_child_env(direct),
         )
         try:
@@ -476,7 +529,9 @@ def run_claude(
             proc.wait()
             raise
     return _finish(
-        proc.returncode, stdout or "", stderr or "",
+        proc.returncode,
+        stdout or "",
+        stderr or "",
         output_format=output_format,
         elapsed_ms=int((time.monotonic() - started) * 1000),
         tier=tier,
@@ -514,29 +569,59 @@ def stream_claude(
     ``backend`` as in :func:`run_claude`: a tool-less call goes to the OmniRoute HTTP API
     first, and then ``on_event`` sees no events at all (the answer arrives whole).
     """
-    if (res := _http_first(prompt, backend, model, timeout, tools, allowed_tools, "json",
-                           slash_commands, cwd,
-                           (remote, base_url, context, provider))) is not None:
+    if (
+        res := _http_first(
+            prompt,
+            backend,
+            model,
+            timeout,
+            tools,
+            allowed_tools,
+            "json",
+            slash_commands,
+            cwd,
+            (remote, base_url, context, provider),
+        )
+    ) is not None:
         return res
     log.info(
         "claude stream: model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)", tier,
+        model,
+        effort,
+        len(prompt),
+        tools,
+        cwd or "(temp)",
+        tier,
     )
     started = time.monotonic()
     deadline = started + timeout
     lines: list[str] = []
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
-            model=model, effort=effort, output_format="stream-json",
-            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands, setting_sources=setting_sources,
+            model=model,
+            effort=effort,
+            output_format="stream-json",
+            tools=tools,
+            allowed_tools=allowed_tools,
+            mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands,
+            setting_sources=setting_sources,
             permission_mode=permission_mode,
-            tier=tier, remote=remote, base_url=base_url,
-            context=context, provider=provider, profile=profile,
+            tier=tier,
+            remote=remote,
+            base_url=base_url,
+            context=context,
+            provider=provider,
+            profile=profile,
         )
         proc = subprocess.Popen(
-            args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, cwd=str(cwd) if cwd else work, start_new_session=True,
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(cwd) if cwd else work,
+            start_new_session=True,
             env=_child_env(),
         )
         # The per-line deadline check alone never fires on a child that prints nothing.
@@ -562,7 +647,9 @@ def stream_claude(
         if timed_out.is_set():
             raise ClaudeCliError(f"claude timed out after {timeout}s")
     return _finish(
-        proc.returncode, "".join(lines), stderr,
+        proc.returncode,
+        "".join(lines),
+        stderr,
         output_format="stream-json",
         elapsed_ms=int((time.monotonic() - started) * 1000),
         tier=tier,
@@ -638,23 +725,49 @@ async def arun_claude(
     backend: str = "auto",
 ) -> ClaudeResult:
     """:func:`run_claude` on asyncio — same flags, same errors."""
-    if (res := await asyncio.to_thread(_http_first, prompt, backend, model, timeout, tools,
-                                       allowed_tools, output_format, slash_commands, cwd,
-                                       (remote, base_url, context, provider))) is not None:
+    if (
+        res := await asyncio.to_thread(
+            _http_first,
+            prompt,
+            backend,
+            model,
+            timeout,
+            tools,
+            allowed_tools,
+            output_format,
+            slash_commands,
+            cwd,
+            (remote, base_url, context, provider),
+        )
+    ) is not None:
         return res
     log.info(
         "claude call (async): model=%s effort=%s prompt=%d chars tools=%r cwd=%s tier=%s",
-        model, effort, len(prompt), tools, cwd or "(temp)", tier,
+        model,
+        effort,
+        len(prompt),
+        tools,
+        cwd or "(temp)",
+        tier,
     )
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="claude-cli-") as work:
         args = build_args(
-            model=model, effort=effort, output_format=output_format,
-            tools=tools, allowed_tools=allowed_tools, mcp_config=_write_empty_mcp(work),
-            slash_commands=slash_commands, setting_sources=setting_sources,
+            model=model,
+            effort=effort,
+            output_format=output_format,
+            tools=tools,
+            allowed_tools=allowed_tools,
+            mcp_config=_write_empty_mcp(work),
+            slash_commands=slash_commands,
+            setting_sources=setting_sources,
             permission_mode=permission_mode,
-            tier=tier, remote=remote, base_url=base_url,
-            context=context, provider=provider, profile=profile,
+            tier=tier,
+            remote=remote,
+            base_url=base_url,
+            context=context,
+            provider=provider,
+            profile=profile,
         )
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -701,7 +814,9 @@ def ping(model: str = "haiku", timeout: float = 90) -> tuple[bool, str]:
     started = time.monotonic()
     try:
         run_claude(
-            "reply with the single word pong", model=model, timeout=int(timeout),
+            "reply with the single word pong",
+            model=model,
+            timeout=int(timeout),
             backend="cli",
         )
     except Exception as exc:  # noqa: BLE001 - a doctor check must never raise
@@ -731,8 +846,7 @@ class ClaudeCliProvider:
     DEFAULT_MODEL = "sonnet"
     DEFAULT_TIMEOUT = 300
 
-    def __init__(self, *, model: str | None = None, timeout: int | None = None,
-                 **kwargs) -> None:
+    def __init__(self, *, model: str | None = None, timeout: int | None = None, **kwargs) -> None:
         self.model = model or self.DEFAULT_MODEL
         self.kwargs = {"timeout": timeout or self.DEFAULT_TIMEOUT, **kwargs}
 

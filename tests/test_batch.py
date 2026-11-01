@@ -18,9 +18,7 @@ def _double(chunk):
 
 @pytest.mark.parametrize("workers", [1, 4])
 def test_run_chunks_collects_results_and_cost(workers):
-    results, cost, failed = run_chunks(
-        [1, 2, 3], _double, label=str, workers=workers
-    )
+    results, cost, failed = run_chunks([1, 2, 3], _double, label=str, workers=workers)
     assert sorted(results) == [2, 4, 6]
     assert cost == pytest.approx(1.5)
     assert failed == []

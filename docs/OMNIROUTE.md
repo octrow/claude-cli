@@ -137,11 +137,11 @@
 ```python
 from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
 
-ok, detail = health()          # omniroute health
-ok, detail = doctor()          # omniroute doctor
-ok, detail = quota_status()    # omniroute quota
+ok, detail = health()  # omniroute health
+ok, detail = doctor()  # omniroute doctor
+ok, detail = quota_status()  # omniroute quota
 ok, detail = simulate("hi", combo="free-stack")  # ни одного upstream-вызова
-ok, plan = dry_run_plan()      # plan — JSON {"command", "args", "env_keys"}, без запуска
+ok, plan = dry_run_plan()  # plan — JSON {"command", "args", "env_keys"}, без запуска
 ```
 
 Все хелперы, включая `dry_run_plan`, возвращают `(bool, str)` и никогда не бросают:

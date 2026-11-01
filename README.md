@@ -36,11 +36,11 @@ The PyPI name is `claude-subprocess`, the import name is `claude_cli`. At runtim
 from claude_cli import run_claude, extract_json
 
 res = run_claude('Reply with {"ok": true}', model="haiku", effort="low", timeout=60)
-res.text         # the model's answer
-res.cost_usd     # cost the envelope reported (may be None)
+res.text  # the model's answer
+res.cost_usd  # cost the envelope reported (may be None)
 res.duration_ms
-res.raw          # the full envelope dict
-extract_json(res.text)   # {'ok': True}
+res.raw  # the full envelope dict
+extract_json(res.text)  # {'ok': True}
 ```
 
 `extract_json` tolerates code fences and prose around the object:
@@ -132,9 +132,12 @@ with its `CLAUDE.md` and settings loaded, and lets it write files:
 
 ```python
 res = stream_claude(
-    "/apply data/export/interested/acme.md", on_event,
-    cwd="~/projects/my-repo", slash_commands=True,
-    setting_sources="user,project", permission_mode="acceptEdits",
+    "/apply data/export/interested/acme.md",
+    on_event,
+    cwd="~/projects/my-repo",
+    slash_commands=True,
+    setting_sources="user,project",
+    permission_mode="acceptEdits",
     tools="Read,Write,Edit,Bash,WebFetch",
 )
 ```
@@ -153,8 +156,7 @@ Cached:
 from claude_cli import FileCacheStore, cached_run, run_claude
 
 store = FileCacheStore("~/.cache/myapp/llm.db")
-text = cached_run(run_claude, store, prompt, model="haiku",
-                  purpose="classify", version="v3")
+text = cached_run(run_claude, store, prompt, model="haiku", purpose="classify", version="v3")
 ```
 
 `cache_key(model, prompt, schema=..., version=..., purpose=..., tools=...)` is a sha256 over
@@ -191,9 +193,9 @@ res = run_claude(prompt, model="claude-sonnet-5-5", direct=True)
 ```python
 from claude_cli import health, doctor, quota_status, simulate, dry_run_plan
 
-health()                          # omniroute health
+health()  # omniroute health
 simulate("hi", combo="free-stack")
-dry_run_plan()                    # planned command, args and env key *names* only
+dry_run_plan()  # planned command, args and env key *names* only
 ```
 
 None of these raise or spend quota; each returns `(ok, text)`.

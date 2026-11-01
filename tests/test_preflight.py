@@ -112,7 +112,8 @@ def test_dry_run_non_json_does_not_echo_raw_output(monkeypatch):
     from claude_cli.preflight import dry_run_plan
 
     monkeypatch.setattr(
-        subprocess, "run",
+        subprocess,
+        "run",
         lambda args, **kw: FakeProc(stdout="ANTHROPIC_AUTH_TOKEN=sk-secret-123\n"),
     )
     ok, detail = dry_run_plan()

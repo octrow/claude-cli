@@ -57,8 +57,12 @@ def cli(monkeypatch):
 
 
 def test_alias_mapping(auto, http):
-    for model, combo in [("haiku", "free-stack"), ("sonnet", "free-stack"),
-                         ("opus", "hard"), ("sub-first", "sub-first")]:
+    for model, combo in [
+        ("haiku", "free-stack"),
+        ("sonnet", "free-stack"),
+        ("opus", "hard"),
+        ("sub-first", "sub-first"),
+    ]:
         omniroute_chat("p", model=model, timeout=5)
         assert http.calls[-1][1]["model"] == combo
 
@@ -66,8 +70,10 @@ def test_alias_mapping(auto, http):
 def test_request_shape_no_temperature_system_message(auto, http):
     res = omniroute_chat("p", model="haiku", timeout=7, system_prompt="be brief", effort="low")
     req, body, timeout = http.calls[0]
-    assert body["messages"] == [{"role": "system", "content": "be brief"},
-                                {"role": "user", "content": "p"}]
+    assert body["messages"] == [
+        {"role": "system", "content": "be brief"},
+        {"role": "user", "content": "p"},
+    ]
     assert "temperature" not in body
     assert req.get_header("Authorization") == "Bearer k" and timeout == 7
     assert res.text == "hi" and res.cost_usd == 0.0
@@ -106,9 +112,16 @@ def test_http_error_is_cli_error():
     assert issubclass(HttpLlmError, runner_mod.ClaudeCliError)
 
 
-@pytest.mark.parametrize("kw", [{"tools": "Read"}, {"allowed_tools": "Read"},
-                                {"output_format": "stream-json"}, {"slash_commands": True},
-                                {"backend": "cli"}])
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"tools": "Read"},
+        {"allowed_tools": "Read"},
+        {"output_format": "stream-json"},
+        {"slash_commands": True},
+        {"backend": "cli"},
+    ],
+)
 def test_cli_only_calls_skip_http(auto, http, cli, kw):
     with pytest.raises(RuntimeError, match="cli reached"):
         run_claude("p", **kw)

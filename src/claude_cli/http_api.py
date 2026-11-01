@@ -26,7 +26,9 @@ COMBOS = {"haiku": "free-stack", "sonnet": "free-stack", "opus": "hard"}
 COOLDOWN_SECS = 600
 ENV_FILE = Path.home() / ".omniroute" / ".env"
 
-_down_until = 0.0  # ponytail: per process, not per model; a dead gateway costs one timeout per window
+_down_until = (
+    0.0  # ponytail: per process, not per model; a dead gateway costs one timeout per window
+)
 
 
 class HttpLlmError(ClaudeCliError):
@@ -47,8 +49,14 @@ def api_key() -> str | None:
     return None
 
 
-def omniroute_chat(prompt: str, *, model: str = "sonnet", timeout: float = 300,
-                   system_prompt: str | None = None, **_ignored) -> ClaudeResult:
+def omniroute_chat(
+    prompt: str,
+    *,
+    model: str = "sonnet",
+    timeout: float = 300,
+    system_prompt: str | None = None,
+    **_ignored,
+) -> ClaudeResult:
     """One chat completion, ClaudeResult-shaped. CLI-only knobs (effort, cwd...) are ignored."""
     key = api_key()
     if not key:
@@ -58,8 +66,9 @@ def omniroute_chat(prompt: str, *, model: str = "sonnet", timeout: float = 300,
     if system_prompt:
         messages.insert(0, {"role": "system", "content": system_prompt})
     body = json.dumps({"model": COMBOS.get(model, model), "messages": messages}).encode()
-    req = urllib.request.Request(url, body, {
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url, body, {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    )
     t0 = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -73,10 +82,16 @@ def omniroute_chat(prompt: str, *, model: str = "sonnet", timeout: float = 300,
         raise HttpLlmError("empty completion")
     # raw keeps the OpenAI body, but `usage` in the CLI envelope's keys so meters read it
     usage = data.get("usage") or {}
-    raw = {**data, "usage": {"input_tokens": usage.get("prompt_tokens"),
-                             "output_tokens": usage.get("completion_tokens")}}
-    return ClaudeResult(text=text, cost_usd=0.0, raw=raw,
-                        duration_ms=int((time.monotonic() - t0) * 1000))
+    raw = {
+        **data,
+        "usage": {
+            "input_tokens": usage.get("prompt_tokens"),
+            "output_tokens": usage.get("completion_tokens"),
+        },
+    }
+    return ClaudeResult(
+        text=text, cost_usd=0.0, raw=raw, duration_ms=int((time.monotonic() - t0) * 1000)
+    )
 
 
 def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult | None:
@@ -97,6 +112,7 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
         return omniroute_chat(prompt, **kw)
     except HttpLlmError as exc:
         _down_until = time.monotonic() + COOLDOWN_SECS
-        log.warning("omniroute http failed (%s); CLI fallback, http off for %ds",
-                    exc, COOLDOWN_SECS)
+        log.warning(
+            "omniroute http failed (%s); CLI fallback, http off for %ds", exc, COOLDOWN_SECS
+        )
         return None

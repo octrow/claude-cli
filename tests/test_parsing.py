@@ -87,7 +87,7 @@ def test_parse_stream_no_result_event():
 
 def test_parse_envelope_skips_wrapper_banner_on_stdout():
     # `omniroute run claude` prints its banner on stdout, ahead of the envelope.
-    stdout = "  📋 Loaded env from ~/.omniroute/.env\n" '{"result":"hi","is_error":false}'
+    stdout = '  📋 Loaded env from ~/.omniroute/.env\n{"result":"hi","is_error":false}'
     assert parse_envelope(stdout)["result"] == "hi"
 
 

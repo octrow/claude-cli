@@ -55,60 +55,114 @@ GUIDES = (
 #: Normative use-vs-avoid map. Status is USED (default path), OPT-IN (explicit
 #: caller opt-in only), or AVOIDED (with the blocking constraint as the reason).
 MATRIX = (
-    {"area": "launch: run claude", "status": "USED",
-     "reason": "the only model path; runner.build_args owns it",
-     "guides": ("USER_GUIDE", "SETUP_GUIDE", "CLI-TOOLS", "README quick-start")},
-    {"area": "routing: combos + simulate + models/combo/test", "status": "OPT-IN",
-     "reason": "tier selection rides on gateway-level flags; verified quota-free via simulate/--dry-run",
-     "guides": ("AUTO-COMBO", "CLI-TOOLS", "USER_GUIDE", "FEATURES")},
-    {"area": "preflight: health/doctor/run --dry-run/logs", "status": "USED",
-     "reason": "quota-free startup checks; this module wraps them",
-     "guides": ("CLI-TOOLS", "USER_GUIDE", "SETUP_GUIDE")},
-    {"area": "quota/cost/usage", "status": "OPT-IN",
-     "reason": "read-only spend visibility; quota doubles as a diagnosis step",
-     "guides": ("FREE_TIERS", "CLI-TOOLS", "FEATURES")},
-    {"area": "free tiers: free-first ordering per tier", "status": "USED",
-     "reason": "drains free-token sources before paid subscription in every tier",
-     "guides": ("FREE_TIERS", "AUTO-COMBO", "FEATURES")},
-    {"area": "remote mode", "status": "OPT-IN",
-     "reason": "explicit --remote/--base-url/--context only; defaults stay local",
-     "guides": ("REMOTE-MODE", "ENVIRONMENT")},
-    {"area": "claude-code-configuration", "status": "USED",
-     "reason": "subscription auth + isolation defaults encode it; never --bare",
-     "guides": ("CLAUDE-CODE-CONFIGURATION", "CODEBASE_DOCUMENTATION")},
-    {"area": "environment", "status": "USED",
-     "reason": "banner/env-key handling strips wrapper noise before classification",
-     "guides": ("ENVIRONMENT", "SETUP_GUIDE")},
-    {"area": "architecture", "status": "USED",
-     "reason": "gateway-vs-model failure split follows the gateway topology",
-     "guides": ("ARCHITECTURE", "CODEBASE_DOCUMENTATION")},
-    {"area": "proxy/resilience", "status": "OPT-IN",
-     "reason": "failure strings classified + hinted; proxy itself is operator config",
-     "guides": ("PROXY_GUIDE", "ARCHITECTURE", "API_REFERENCE")},
-    {"area": "api-reference/openapi", "status": "AVOIDED",
-     "reason": "no-live-CLI-testability + zero-dependencies: the CLI surface covers every behavior we need",
-     "guides": ("API_REFERENCE", "openapi.yaml")},
-    {"area": "server lifecycle: serve/stop/restart/status", "status": "AVOIDED",
-     "reason": "isolation-default: the library never manages the gateway daemon",
-     "guides": ("SETUP_GUIDE", "CLI-TOOLS", "UNINSTALL")},
-    {"area": "compression/RTK + context-eng", "status": "AVOIDED",
-     "reason": "isolation-default + no-live-CLI-testability: server-side pipeline, operator owned",
-     "guides": ("COMPRESSION_GUIDE", "RTK_COMPRESSION", "FEATURES")},
-    {"area": "response cache (gateway)", "status": "AVOIDED",
-     "reason": "zero-dependencies: the local sha256 cache.py already owns this",
-     "guides": ("FEATURES", "CLI-TOOLS")},
-    {"area": "translator", "status": "AVOIDED",
-     "reason": "no-live-CLI-testability: request-format translation is outside the claude -p contract",
-     "guides": ("FEATURES", "API_REFERENCE")},
-    {"area": "skills/memory", "status": "AVOIDED",
-     "reason": "isolation-default: project skills/memory break the locked-down surface",
-     "guides": ("FEATURES", "CODEBASE_DOCUMENTATION")},
-    {"area": "provider nodes/sync/telemetry/batches/files", "status": "AVOIDED",
-     "reason": "no-live-CLI-testability: fleet management, not per-call execution",
-     "guides": ("CLI-TOOLS", "FEATURES", "CODEBASE_DOCUMENTATION")},
-    {"area": "uninstall", "status": "AVOIDED",
-     "reason": "isolation-default: the library never mutates the host install",
-     "guides": ("UNINSTALL", "SETUP_GUIDE")},
+    {
+        "area": "launch: run claude",
+        "status": "USED",
+        "reason": "the only model path; runner.build_args owns it",
+        "guides": ("USER_GUIDE", "SETUP_GUIDE", "CLI-TOOLS", "README quick-start"),
+    },
+    {
+        "area": "routing: combos + simulate + models/combo/test",
+        "status": "OPT-IN",
+        "reason": "tier selection rides on gateway-level flags; verified quota-free via simulate/--dry-run",
+        "guides": ("AUTO-COMBO", "CLI-TOOLS", "USER_GUIDE", "FEATURES"),
+    },
+    {
+        "area": "preflight: health/doctor/run --dry-run/logs",
+        "status": "USED",
+        "reason": "quota-free startup checks; this module wraps them",
+        "guides": ("CLI-TOOLS", "USER_GUIDE", "SETUP_GUIDE"),
+    },
+    {
+        "area": "quota/cost/usage",
+        "status": "OPT-IN",
+        "reason": "read-only spend visibility; quota doubles as a diagnosis step",
+        "guides": ("FREE_TIERS", "CLI-TOOLS", "FEATURES"),
+    },
+    {
+        "area": "free tiers: free-first ordering per tier",
+        "status": "USED",
+        "reason": "drains free-token sources before paid subscription in every tier",
+        "guides": ("FREE_TIERS", "AUTO-COMBO", "FEATURES"),
+    },
+    {
+        "area": "remote mode",
+        "status": "OPT-IN",
+        "reason": "explicit --remote/--base-url/--context only; defaults stay local",
+        "guides": ("REMOTE-MODE", "ENVIRONMENT"),
+    },
+    {
+        "area": "claude-code-configuration",
+        "status": "USED",
+        "reason": "subscription auth + isolation defaults encode it; never --bare",
+        "guides": ("CLAUDE-CODE-CONFIGURATION", "CODEBASE_DOCUMENTATION"),
+    },
+    {
+        "area": "environment",
+        "status": "USED",
+        "reason": "banner/env-key handling strips wrapper noise before classification",
+        "guides": ("ENVIRONMENT", "SETUP_GUIDE"),
+    },
+    {
+        "area": "architecture",
+        "status": "USED",
+        "reason": "gateway-vs-model failure split follows the gateway topology",
+        "guides": ("ARCHITECTURE", "CODEBASE_DOCUMENTATION"),
+    },
+    {
+        "area": "proxy/resilience",
+        "status": "OPT-IN",
+        "reason": "failure strings classified + hinted; proxy itself is operator config",
+        "guides": ("PROXY_GUIDE", "ARCHITECTURE", "API_REFERENCE"),
+    },
+    {
+        "area": "api-reference/openapi",
+        "status": "AVOIDED",
+        "reason": "no-live-CLI-testability + zero-dependencies: the CLI surface covers every behavior we need",
+        "guides": ("API_REFERENCE", "openapi.yaml"),
+    },
+    {
+        "area": "server lifecycle: serve/stop/restart/status",
+        "status": "AVOIDED",
+        "reason": "isolation-default: the library never manages the gateway daemon",
+        "guides": ("SETUP_GUIDE", "CLI-TOOLS", "UNINSTALL"),
+    },
+    {
+        "area": "compression/RTK + context-eng",
+        "status": "AVOIDED",
+        "reason": "isolation-default + no-live-CLI-testability: server-side pipeline, operator owned",
+        "guides": ("COMPRESSION_GUIDE", "RTK_COMPRESSION", "FEATURES"),
+    },
+    {
+        "area": "response cache (gateway)",
+        "status": "AVOIDED",
+        "reason": "zero-dependencies: the local sha256 cache.py already owns this",
+        "guides": ("FEATURES", "CLI-TOOLS"),
+    },
+    {
+        "area": "translator",
+        "status": "AVOIDED",
+        "reason": "no-live-CLI-testability: request-format translation is outside the claude -p contract",
+        "guides": ("FEATURES", "API_REFERENCE"),
+    },
+    {
+        "area": "skills/memory",
+        "status": "AVOIDED",
+        "reason": "isolation-default: project skills/memory break the locked-down surface",
+        "guides": ("FEATURES", "CODEBASE_DOCUMENTATION"),
+    },
+    {
+        "area": "provider nodes/sync/telemetry/batches/files",
+        "status": "AVOIDED",
+        "reason": "no-live-CLI-testability: fleet management, not per-call execution",
+        "guides": ("CLI-TOOLS", "FEATURES", "CODEBASE_DOCUMENTATION"),
+    },
+    {
+        "area": "uninstall",
+        "status": "AVOIDED",
+        "reason": "isolation-default: the library never mutates the host install",
+        "guides": ("UNINSTALL", "SETUP_GUIDE"),
+    },
 )
 
 #: Benchmark sources that cite tier membership (reviewed 2026-09-07).
@@ -140,8 +194,12 @@ TIERS = {
     },
     "middle": {
         "class": "sonnet",
-        "examples": ("GPT-5.6 Terra-class", "Muse Spark 1.2-class",
-                     "Grok 4.6-class", "Claude Opus 4.7-class"),
+        "examples": (
+            "GPT-5.6 Terra-class",
+            "Muse Spark 1.2-class",
+            "Grok 4.6-class",
+            "Claude Opus 4.7-class",
+        ),
         "combo": "middle",
         "free_first": True,
         "benchmarks": BENCHMARKS,
@@ -158,8 +216,20 @@ TIERS = {
 #: Subcommands this module may invoke. `run` is allowed only with `--dry-run`
 #: (the plan is printed, nothing executes, no quota is spent).
 QUOTA_FREE_SUBCOMMANDS = frozenset(
-    {"health", "doctor", "run", "logs", "quota", "simulate",
-     "status", "models", "combo", "test", "cost", "usage"}
+    {
+        "health",
+        "doctor",
+        "run",
+        "logs",
+        "quota",
+        "simulate",
+        "status",
+        "models",
+        "combo",
+        "test",
+        "cost",
+        "usage",
+    }
 )
 
 _DETAIL_CAP = 500
@@ -172,9 +242,7 @@ def _launch(args: list[str], timeout: int) -> subprocess.CompletedProcess | tupl
     of raising, so doctor-style callers keep working on a fresh machine.
     """
     try:
-        return subprocess.run(
-            args, capture_output=True, text=True, check=False, timeout=timeout
-        )
+        return subprocess.run(args, capture_output=True, text=True, check=False, timeout=timeout)
     except FileNotFoundError:
         if shutil.which("omniroute") is None:
             return False, "omniroute not on PATH — run the OmniRoute SETUP_GUIDE install first"
@@ -257,5 +325,6 @@ def dry_run_plan(timeout: int = 60) -> tuple[bool, str]:
     log.info("omniroute dry-run ok: command=%s env_keys=%d", plan.get("command"), len(env_keys))
     return True, json.dumps(
         {"command": plan.get("command"), "args": plan.get("args") or [], "env_keys": env_keys},
-        ensure_ascii=False, separators=(",", ":"),
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
