@@ -296,56 +296,34 @@ def _matched_line(combined: str, hit: re.Match) -> str:
     return combined[start : end if end != -1 else len(combined)].strip()[:500]
 
 
-def _finish(
-    returncode: int | None,
-    stdout: str,
-    stderr: str,
-    *,
-    output_format: str,
-    elapsed_ms: int,
-    tier: str | None = None,
-    via_gateway: bool = True,
-) -> ClaudeResult:
-    """Classify a finished run: raise on failure, else return the result.
+def _raise_classified(
+    combined: str, detail: str, stdout: str, *, tier: str | None, via_gateway: bool
+) -> None:
+    """Raise the specific error a FAILED run's output points to; return if none matches.
 
-    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
-    always prefixes ``omniroute run``); it decides whether a usage limit is
-    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
+    Only a failed run's output is evidence of a limit or a login problem: a
+    successful answer may legitimately discuss "rate limits" or "not logged in"
+    (ponytail: gate on failure, don't try to outsmart the regex).
+
+    Gateway first, limit second — the reverse of the obvious order, and the
+    reason is the whole point of routing through a combo: OmniRoute quotes the
+    failing upstream's own words, so "combo 'hard': fallback exhausted (429)"
+    matches BOTH patterns. Checking the limit first reported a gateway-level
+    exhaustion as a personal-subscription limit and aborted a 187-item batch
+    that a skip-and-continue would have finished. `_GATEWAY_RE`'s own docstring
+    already says waiting fixes nothing for these; now the code agrees.
     """
-    try:  # a failed run's envelope carries the real error text in `result`
-        env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
-    except ValueError:
-        env = {}
-    result = env.get("result") if isinstance(env.get("result"), str) else None
-    clean_stdout = clean_cli_text(stdout or "")
-    clean_stderr = clean_cli_text(stderr or "")
-    combined = clean_stdout + "\n" + clean_stderr
-
-    # Only a FAILED run's output is evidence of a limit or a login problem: a
-    # successful answer may legitimately discuss "rate limits" or "not logged in"
-    # (ponytail: gate on failure, don't try to outsmart the regex).
-    failed = returncode != 0 or bool(env.get("is_error"))
-
-    # Gateway first, limit second — the reverse of the obvious order, and the
-    # reason is the whole point of routing through a combo: OmniRoute quotes the
-    # failing upstream's own words, so "combo 'hard': fallback exhausted (429)"
-    # matches BOTH patterns. Checking the limit first reported a gateway-level
-    # exhaustion as a personal-subscription limit and aborted a 187-item batch
-    # that a skip-and-continue would have finished. `_GATEWAY_RE`'s own docstring
-    # already says waiting fixes nothing for these; now the code agrees.
-    if failed and "Not logged in" in combined:
+    if "Not logged in" in combined:
         raise NotLoggedInError(
             "claude reports 'Not logged in' — run `claude` once interactively, "
             "complete /login, then retry.",
             stdout=stdout,
         )
-    if failed and _GATEWAY_EXHAUSTED_RE.search(combined):
+    if _GATEWAY_EXHAUSTED_RE.search(combined):
         raise ClaudeCliError(
-            f"omniroute gateway error: {error_detail(clean_stdout, clean_stderr, result)}"
-            f"{_gateway_hint(combined, tier)}",
-            stdout=stdout,
+            f"omniroute gateway error: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
         )
-    if failed and (limit_hit := _USAGE_LIMIT_RE.search(combined)):
+    if limit_hit := _USAGE_LIMIT_RE.search(combined):
         # Every call built by `build_args` goes through `omniroute run`, so a limit
         # here is ONE upstream in the chain, not the end of the road.
         raise UsageLimitError(
@@ -353,14 +331,21 @@ def _finish(
             stdout=stdout,
             session_wide=not via_gateway,
         )
-    if returncode != 0:
-        detail = error_detail(clean_stdout, clean_stderr, result)
-        if detail == "(no output)" and ((stdout or "") + (stderr or "")).strip():
-            detail = "(stderr held only omniroute warnings)"
-        raise ClaudeCliError(
-            f"claude exited {returncode}: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
-        )
 
+
+def _exit_error(
+    returncode: int | None, detail: str, raw: str, combined: str, stdout: str, tier: str | None
+) -> ClaudeCliError:
+    if detail == "(no output)" and raw.strip():
+        detail = "(stderr held only omniroute warnings)"
+    return ClaudeCliError(
+        f"claude exited {returncode}: {detail}{_gateway_hint(combined, tier)}", stdout=stdout
+    )
+
+
+def _success(
+    env: dict, stdout: str, *, output_format: str, elapsed_ms: int, tier: str | None
+) -> ClaudeResult:
     if output_format != "stream-json":
         try:
             env = parse_envelope(stdout)
@@ -385,6 +370,39 @@ def _finish(
         stdout=stdout,
         tier=tier,
     )
+
+
+def _finish(
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+    *,
+    output_format: str,
+    elapsed_ms: int,
+    tier: str | None = None,
+    via_gateway: bool = True,
+) -> ClaudeResult:
+    """Classify a finished run: raise on failure, else return the result.
+
+    ``via_gateway`` is True whenever the argv came from :func:`build_args` (which
+    always prefixes ``omniroute run``); it decides whether a usage limit is
+    session-wide. Pass False only for a hand-built direct ``claude`` invocation.
+    """
+    try:  # a failed run's envelope carries the real error text in `result`
+        env = parse_stream(stdout) if output_format == "stream-json" else parse_envelope(stdout)
+    except ValueError:
+        env = {}
+    result = env.get("result") if isinstance(env.get("result"), str) else None
+    stdout, stderr = stdout or "", stderr or ""
+    clean_stdout, clean_stderr = clean_cli_text(stdout), clean_cli_text(stderr)
+    combined = clean_stdout + "\n" + clean_stderr
+    detail = error_detail(clean_stdout, clean_stderr, result)
+
+    if returncode != 0 or env.get("is_error"):
+        _raise_classified(combined, detail, stdout, tier=tier, via_gateway=via_gateway)
+    if returncode != 0:
+        raise _exit_error(returncode, detail, stdout + stderr, combined, stdout, tier)
+    return _success(env, stdout, output_format=output_format, elapsed_ms=elapsed_ms, tier=tier)
 
 
 def _http_first(
