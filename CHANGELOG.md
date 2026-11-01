@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-01
+
 ### Fixed
 
 - `ping` always goes through the CLI: `CLAUDE_CLI_BACKEND` no longer overrides an explicit `backend="cli"`, so `ping` can't report "pong" over HTTP without starting `claude`.
