@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import urllib.error
+from http.client import HTTPMessage
 
 import pytest
 
@@ -351,7 +352,9 @@ def test_http_spending_the_whole_budget_times_out_without_spawning(auto, monkeyp
 
 def _fail_with(monkeypatch, code, body):
     def urlopen(req, timeout):
-        raise urllib.error.HTTPError(req.full_url, code, "err", {}, io.BytesIO(body.encode()))  # type: ignore[arg-type]
+        raise urllib.error.HTTPError(
+            req.full_url, code, "err", HTTPMessage(), io.BytesIO(body.encode())
+        )
 
     monkeypatch.setattr(http_api._OPENER, "open", urlopen)
 
