@@ -48,7 +48,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .errors import ClaudeCliError, NotLoggedInError, UsageLimitError
 from .parsing import clean_cli_text, error_detail, parse_envelope, parse_stream
@@ -692,15 +692,17 @@ def _pump(
     """
     # Drain stderr concurrently: read after stdout, a child that fills the stderr pipe
     # first blocks forever while we block on its stdout.
+    stdin, stdout, stderr = proc.stdin, proc.stdout, proc.stderr
+    assert stdin and stdout and stderr  # narrows Optional for the type checker
     err: list[str] = []
-    drain = threading.Thread(target=lambda: err.append(proc.stderr.read()), daemon=True)  # type: ignore[union-attr]
+    drain = threading.Thread(target=lambda: err.append(stderr.read()), daemon=True)
     drain.start()
     try:
-        proc.stdin.write(prompt)  # type: ignore[union-attr]
-        proc.stdin.close()  # type: ignore[union-attr]
+        stdin.write(prompt)
+        stdin.close()
     except BrokenPipeError:
         pass  # the child exited without reading; its own output says why
-    for line in proc.stdout:  # type: ignore[union-attr]
+    for line in stdout:
         lines.append(line)
         if time.monotonic() > deadline:
             raise ClaudeCliError(f"claude timed out after {timeout}s")
@@ -869,7 +871,7 @@ class ClaudeCliProvider:
 
     def __init__(self, *, model: str | None = None, timeout: int | None = None, **kwargs) -> None:
         self.model = model or self.DEFAULT_MODEL
-        self.kwargs = {"timeout": timeout or self.DEFAULT_TIMEOUT, **kwargs}
+        self.kwargs: dict[str, Any] = {"timeout": timeout or self.DEFAULT_TIMEOUT, **kwargs}
 
     def ask(self, prompt: str, *, model: str | None = None) -> str:
         return run_claude(prompt, model=model or self.model, **self.kwargs).text

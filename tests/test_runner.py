@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -506,7 +507,7 @@ def test_build_args_routing_defaults_off():
 
 
 def test_build_args_routing_never_passes_bare():
-    combos = [
+    combos: list[dict[str, Any]] = [
         {"tier": "ultra"},
         {"tier": "low", "remote": "http://gw:20128"},
         {"tier": "high", "context": "prod", "provider": "agy"},
