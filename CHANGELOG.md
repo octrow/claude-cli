@@ -5,9 +5,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-01
+
 ### Added
 
 - `direct=True` on `run_claude` and `build_args`: `claude -p` without OmniRoute, on the local Claude Code login (gateway and API-key variables are dropped from its environment). A usage limit there is session-wide.
+
+### Changed
+
+- `extract_json` finds the first object with `json.JSONDecoder.raw_decode`; results are the same, but a `JSONDecodeError` now reports positions in the whole reply rather than in the cut-out object.
+- Internal cleanup with no behaviour change: ruff format and lint, simpler `_finish`, `build_args` and `dry_run_plan`; CI now runs ruff and ty.
 
 ## [0.1.3] - 2026-10-15
 
