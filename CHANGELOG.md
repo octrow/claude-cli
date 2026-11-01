@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-01
+
 ### Fixed
 
 - `backend` / `CLAUDE_CLI_BACKEND` values other than `auto`, `cli`, `api` raise `ValueError`; a typo like `CLI` used to run as `auto` and reach the gateway.
