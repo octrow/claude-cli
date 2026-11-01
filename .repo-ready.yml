@@ -1,0 +1,3 @@
+exempt:
+  private_paths_in_files: /home/user/ in tests is a placeholder path inside a fixture of real OmniRoute noise, not a real home dir
+  private_paths_in_history: old commits hold /home/octrow, the same handle as the public GitHub account; not worth rewriting a public repo's history

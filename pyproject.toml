@@ -4,7 +4,7 @@ version = "0.1.4"
 license = "MIT"
 readme = "README.md"
 authors = [{ name = "Daniil Petrov" }]
-description = "Hardened wrapper around the local `claude -p` CLI (subscription auth), + JSON extraction and response cache"
+description = "Hardened Python wrapper for the local Claude Code CLI (claude -p): sync/async, streaming, cache. Stdlib-only."
 requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
