@@ -54,6 +54,17 @@ class HttpLlmError(ClaudeCliError):
         self.status = status
 
 
+def _status_error(exc: urllib.error.HTTPError, url: str) -> HttpLlmError:
+    """The gateway answered with an error status: keep the status and the (capped) body."""
+    body = _error_body(exc)
+    detail = clean_cli_text(body).strip()[:300]
+    return HttpLlmError(
+        f"HTTP {exc.code} from {url}" + (f": {detail}" if detail else ""),
+        status=exc.code,
+        stdout=body,
+    )
+
+
 def _error_body(exc: urllib.error.HTTPError) -> str:
     try:
         return exc.read(MAX_ERROR_BODY_BYTES).decode("utf-8", "replace")
@@ -153,13 +164,7 @@ def omniroute_chat(
             data = json.loads(_read_capped(resp, t0 + timeout))
         text = data["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as exc:  # 401 key, 422 body, 429/503 busy
-        body = _error_body(exc)
-        detail = clean_cli_text(body).strip()[:300]
-        raise HttpLlmError(
-            f"HTTP {exc.code} from {url}" + (f": {detail}" if detail else ""),
-            status=exc.code,
-            stdout=body,
-        ) from exc
+        raise _status_error(exc, url) from exc
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise HttpLlmError(f"{type(exc).__name__}: {exc}") from exc
     if not isinstance(text, str) or not text.strip():
@@ -200,7 +205,6 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
     ``CLAUDE_CLI_BACKEND`` overrides any kwarg except an explicit "cli": that one is a
     requirement (``ping`` must prove the CLI itself), not a default the env may flip.
     """
-    global _down_until
     if backend != "cli":
         backend = os.environ.get("CLAUDE_CLI_BACKEND") or backend
     if backend == "cli" or cli_only:
@@ -216,11 +220,15 @@ def try_http(prompt: str, *, backend: str, cli_only: bool, **kw) -> ClaudeResult
     try:
         return omniroute_chat(prompt, **kw)
     except HttpLlmError as exc:
-        if exc.status in PER_REQUEST_STATUSES:
-            log.warning("omniroute http rejected this request (%s); CLI fallback", exc)
-            return None
-        _down_until = time.monotonic() + COOLDOWN_SECS
-        log.warning(
-            "omniroute http failed (%s); CLI fallback, http off for %ds", exc, COOLDOWN_SECS
-        )
+        _note_auto_failure(exc)
         return None
+
+
+def _note_auto_failure(exc: HttpLlmError) -> None:
+    """Log an ``auto`` HTTP failure; park HTTP for the process unless only this request was bad."""
+    global _down_until
+    if exc.status in PER_REQUEST_STATUSES:
+        log.warning("omniroute http rejected this request (%s); CLI fallback", exc)
+        return
+    _down_until = time.monotonic() + COOLDOWN_SECS
+    log.warning("omniroute http failed (%s); CLI fallback, http off for %ds", exc, COOLDOWN_SECS)
