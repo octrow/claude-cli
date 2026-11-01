@@ -31,6 +31,7 @@ def http(monkeypatch):
     class H:
         fail = False
         calls: list
+        body: bytes
 
     def urlopen(req, timeout):
         calls.append((req, json.loads(req.data), timeout))
@@ -241,7 +242,7 @@ def test_redirect_is_not_followed_with_the_key(auto, monkeypatch):
             self.end_headers()
             self.wfile.write(json.dumps(REPLY).encode())
 
-        def log_message(self, *_args):
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
