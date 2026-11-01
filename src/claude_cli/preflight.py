@@ -293,6 +293,17 @@ def simulate(prompt: str, combo: str | None = None, timeout: int = 60) -> tuple[
     return _call(args, timeout)
 
 
+def _plan_env_keys(plan: dict) -> list[str]:
+    """Env key NAMES the plan changes or adds; anything else in the plan is ignored."""
+    env = plan.get("env")
+    keys = env.get("changedOrAdded") if isinstance(env, dict) else None
+    if not isinstance(keys, (list, tuple, dict)):  # a bare string would iterate per char
+        return []
+    # ponytail: names only — if a future gateway ever echoes values, drop
+    # anything shaped like an assignment instead of leaking it.
+    return [k for k in keys if isinstance(k, str) and "=" not in k]
+
+
 def dry_run_plan(timeout: int = 60) -> tuple[bool, str]:
     """Planned `run claude` command — no execution, no quota spent, never raises.
 
@@ -315,13 +326,7 @@ def dry_run_plan(timeout: int = 60) -> tuple[bool, str]:
         )
     if not isinstance(plan, dict):
         return False, "omniroute dry-run returned an unexpected plan shape"
-    env = plan.get("env") if isinstance(plan.get("env"), dict) else {}
-    keys = env.get("changedOrAdded")
-    if not isinstance(keys, (list, tuple, dict)):  # a bare string would iterate per char
-        keys = []
-    # ponytail: names only — if a future gateway ever echoes values, drop
-    # anything shaped like an assignment instead of leaking it.
-    env_keys = [k for k in keys if isinstance(k, str) and "=" not in k]
+    env_keys = _plan_env_keys(plan)
     log.info("omniroute dry-run ok: command=%s env_keys=%d", plan.get("command"), len(env_keys))
     return True, json.dumps(
         {"command": plan.get("command"), "args": plan.get("args") or [], "env_keys": env_keys},
