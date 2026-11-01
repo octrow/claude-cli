@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-01
+
 ### Fixed
 
 - A failed direct call (`direct=True`) is no longer reported as an OmniRoute gateway error and gets no OmniRoute diagnosis hint.
