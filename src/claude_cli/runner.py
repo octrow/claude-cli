@@ -45,9 +45,9 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from .errors import ClaudeCliError, NotLoggedInError, UsageLimitError
@@ -782,7 +782,7 @@ async def arun_claude(
             out, err = await asyncio.wait_for(
                 proc.communicate(prompt.encode("utf-8")), timeout=timeout
             )
-        except (TimeoutError, asyncio.TimeoutError) as exc:
+        except TimeoutError as exc:
             _kill_tree(proc)
             await proc.wait()
             raise ClaudeCliError(f"claude timed out after {timeout}s") from exc

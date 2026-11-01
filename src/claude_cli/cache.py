@@ -12,7 +12,7 @@ import hashlib
 import logging
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -116,8 +116,8 @@ class FileCacheStore:
         except ValueError:  # unparseable timestamp: treat as expired, re-ask rather than trust
             return False
         if written.tzinfo is None:  # naive row (hand-written/legacy): assume UTC, never TypeError
-            written = written.replace(tzinfo=timezone.utc)
-        age = datetime.now(timezone.utc) - written
+            written = written.replace(tzinfo=UTC)
+        age = datetime.now(UTC) - written
         return age <= timedelta(days=self.max_age_days)
 
     def put(self, key: str, text: str, **meta) -> None:
@@ -134,7 +134,7 @@ class FileCacheStore:
                     text,
                     meta.get("cost_usd"),
                     meta.get("duration_ms"),
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(UTC).isoformat(),
                 ),
             )
             conn.commit()

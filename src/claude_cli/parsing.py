@@ -156,7 +156,8 @@ def parse_envelope(stdout: str) -> dict:
         if env is None:
             raise ValueError(f"claude returned non-JSON: {stdout[-300:]}") from exc
     if not isinstance(env, dict):
-        raise ValueError(f"unexpected claude envelope: {type(env).__name__}")
+        # ValueError, not TypeError: runner._finish catches ValueError for every bad envelope
+        raise ValueError(f"unexpected claude envelope: {type(env).__name__}")  # noqa: TRY004
     return env
 
 

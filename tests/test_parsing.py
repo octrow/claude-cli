@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-from claude_cli.parsing import clean_cli_text, error_detail, strip_ansi
 from claude_cli import (
     extract_json,
     extract_json_or_none,
@@ -12,6 +11,7 @@ from claude_cli import (
     parse_stream,
     strip_fences,
 )
+from claude_cli.parsing import clean_cli_text, error_detail, strip_ansi
 
 
 def test_strip_fences_plain_passthrough():

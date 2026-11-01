@@ -30,7 +30,6 @@ def http(monkeypatch):
 
     class H:
         fail = False
-        calls = []
 
     def urlopen(req, timeout):
         calls.append((req, json.loads(req.data), timeout))

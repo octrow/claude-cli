@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from claude_cli import (
     ClaudeCliProvider,
@@ -146,7 +146,7 @@ def test_file_store_expires_rows_older_than_max_age(tmp_path):
     assert store.get("k") == "answer"
 
     # rewrite created_at to 400 days ago, straight in the file
-    old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=400)).isoformat()
     with closing(sqlite3.connect(tmp_path / "llm.db")) as conn:
         conn.execute("UPDATE claude_cli_cache SET created_at = ?", (old,))
         conn.commit()
@@ -156,7 +156,7 @@ def test_file_store_expires_rows_older_than_max_age(tmp_path):
 def test_file_store_without_max_age_keeps_everything(tmp_path):
     store = FileCacheStore(tmp_path / "llm.db")
     store.put("k", "answer")
-    old = (datetime.now(timezone.utc) - timedelta(days=4000)).isoformat()
+    old = (datetime.now(UTC) - timedelta(days=4000)).isoformat()
     with closing(sqlite3.connect(tmp_path / "llm.db")) as conn:
         conn.execute("UPDATE claude_cli_cache SET created_at = ?", (old,))
         conn.commit()
