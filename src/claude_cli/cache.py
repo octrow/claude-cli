@@ -74,6 +74,10 @@ CREATE TABLE IF NOT EXISTS claude_cli_cache (
 """
 
 
+#: seconds a writer waits on a locked db before failing (sqlite default is 5).
+_BUSY_TIMEOUT_S = 30.0
+
+
 class FileCacheStore:
     """A local sqlite3 file — no server, so caching never silently no-ops.
 
@@ -95,13 +99,19 @@ class FileCacheStore:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.close(os.open(self.path, os.O_CREAT | os.O_WRONLY, 0o600))
         with closing(self._connect()) as conn:
+            # WAL lets parallel workers write without "database is locked"; the mode is
+            # stored in the db file, so set it once here. A db that refuses it keeps working.
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.Error as exc:
+                log.warning("llm cache: WAL not enabled: %s", exc)
             conn.execute(_SCHEMA)
             conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
         # sqlite3's own context manager only manages the transaction — closing()
         # is what actually releases the file handle after each call.
-        return sqlite3.connect(self.path)
+        return sqlite3.connect(self.path, timeout=_BUSY_TIMEOUT_S)
 
     def get(self, key: str) -> str | None:
         with closing(self._connect()) as conn:
@@ -201,8 +211,8 @@ def cached_run(
     """Call ``runner(prompt, model=..., **kwargs)`` behind ``store``; return the text.
 
     ``runner`` is :func:`claude_cli.runner.run_claude` (or any callable returning
-    a :class:`~claude_cli.runner.ClaudeResult`). A cache-write failure is logged,
-    never raised — a broken cache must not fail an answer we already have.
+    a :class:`~claude_cli.runner.ClaudeResult`). A cache read or write failure is
+    logged, never raised (a read failure counts as a miss) — a broken cache must not fail an answer we already have.
 
     ``store_prompt`` is opt-in: prompts often embed privacy-gated payloads, so by
     default only the sha256 key touches disk and the ``prompt`` column stays NULL.
@@ -224,7 +234,11 @@ def cached_run(
         tools=kwargs.get("tools", ""),
     )
     if not refresh:
-        hit = store.get(key)
+        try:
+            hit = store.get(key)
+        except (sqlite3.Error, OSError) as exc:  # broken cache degrades to a miss
+            log.warning("llm cache read failed: %s", exc)
+            hit = None
         if hit is not None:
             log.debug("llm cache hit %s", purpose or key[:8])
             return hit

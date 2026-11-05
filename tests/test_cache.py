@@ -245,3 +245,22 @@ def test_cached_run_project_mode_defaults_keep_existing_keys():
         permission_mode=None,
     )
     assert cache_key("sonnet", "p") in store.rows
+
+
+def test_cached_run_read_error_degrades_to_miss():
+    class BrokenReads(DictCacheStore):
+        def get(self, key):
+            raise sqlite3.DatabaseError("file is not a database")
+
+    calls = []
+    assert cached_run(_runner(text="fresh", calls=calls), BrokenReads(), "p") == "fresh"
+    assert len(calls) == 1
+
+
+def test_file_store_uses_wal_and_busy_timeout(tmp_path):
+    store = FileCacheStore(tmp_path / "llm.db")
+    with closing(store._connect()) as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
+    store.put("k", "v")
+    assert store.get("k") == "v"

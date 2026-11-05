@@ -226,8 +226,8 @@ Module: `runner`, `errors`
 Ключ: sha256 по модели, промпту со схлопнутыми пробелами и `schema`/`version`/`purpose`/`tools`, если заданы.
 `tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort`, `cwd` (resolved), `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode` входят в часть модели, если отличаются от умолчания (`None`, `False`, `"medium"`, `"user"`), так что старые строки сохраняют ключи; `effort=None` входит. `backend`, `output_format`, `timeout` — нет.
 Попадание → сохранённый текст, runner не вызывается. `refresh=True` пропускает чтение. Возвращается только `.text`.
-Запись: одна строка на промах; колонка `prompt` NULL, если не `store_prompt=True`. Ошибка записи (`sqlite3.Error`, `OSError`) в лог, не наружу; ошибки чтения и `FileCacheStore()` летят наружу.
-`FileCacheStore`: sqlite-таблица `claude_cli_cache`; новый каталог 0700, новый файл 0600 (umask действует; существующие сохраняют права); `max_age_days` делает старые строки промахами, ничего не удаляется.
+Запись: одна строка на промах; колонка `prompt` NULL, если не `store_prompt=True`. Ошибка чтения или записи (`sqlite3.Error`, `OSError`) в лог, не наружу (ошибка чтения считается промахом); ошибки `FileCacheStore()` летят наружу.
+`FileCacheStore`: sqlite-таблица `claude_cli_cache`; новый каталог 0700, новый файл 0600 (umask действует; существующие сохраняют права); `max_age_days` делает старые строки промахами, ничего не удаляется; при открытии база переводится в WAL, соединения ждут блокировку до 30 с.
 Module: `cache`
 
 ### Пакеты (`pack_batches`, `run_chunks`)

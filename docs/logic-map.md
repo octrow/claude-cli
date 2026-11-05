@@ -231,8 +231,8 @@ Module: `runner`, `errors`
 Key: sha256 over model, whitespace-collapsed prompt, and `schema`/`version`/`purpose`/`tools` when set.
 `tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort`, `cwd` (resolved path), `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode` fold into the model part when off their default (`None`, `False`, `"medium"`, `"user"`), so old rows keep their keys; `effort=None` folds. `backend`, `output_format`, `timeout` do not.
 Hit → stored text, runner not called. `refresh=True` skips the read. Only `.text` is returned.
-Writes: one row per miss; `prompt` column NULL unless `store_prompt=True`. A write error (`sqlite3.Error`, `OSError`) is logged, not raised; read and `FileCacheStore()` errors propagate.
-`FileCacheStore`: sqlite table `claude_cli_cache`; a new leaf dir gets 0700 (new parents get the umask default), a new file 0600 (umask applies; existing ones keep their mode); `max_age_days` makes old rows read as misses, nothing is deleted.
+Writes: one row per miss; `prompt` column NULL unless `store_prompt=True`. A read or write error (`sqlite3.Error`, `OSError`) is logged, not raised (a read error counts as a miss); `FileCacheStore()` errors propagate.
+`FileCacheStore`: sqlite table `claude_cli_cache`; a new leaf dir gets 0700 (new parents get the umask default), a new file 0600 (umask applies; existing ones keep their mode); `max_age_days` makes old rows read as misses, nothing is deleted; the db is switched to WAL on open, connections wait up to 30 s on a lock.
 Module: `cache`
 
 ### Batches (`pack_batches`, `run_chunks`)
