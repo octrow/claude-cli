@@ -23,7 +23,7 @@
 <line x1="278" y1="230" x2="416" y2="310" stroke="#A1A9B0" stroke-width="3"/>
 <path d="M402.0 308.9 L416 310 L408.1 298.4" fill="none" stroke="#A1A9B0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 <text x="284" y="116" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#5CC6B6">tool-less</text>
-<text x="286" y="352" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#A1A9B0">tools / cwd /</text>
+<text x="286" y="352" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#A1A9B0">tools, cwd,</text>
 <text x="286" y="376" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#A1A9B0">stream-json</text>
 <line x1="640" y1="170" x2="640" y2="246" stroke="#F2A066" stroke-width="3" stroke-dasharray="8 7"/>
 <path d="M633.9 233.4 L640 246 L646.1 233.4" fill="none" stroke="#F2A066" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
