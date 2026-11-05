@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-05
+
+### Fixed
+
+- Cache key includes `cwd` (resolved), `allowed_tools` and other project-mode options.
+- HTTP tier catches `http.client.HTTPException`; `output_format` validated up front; clearer empty-error detail.
+
 ## [0.1.11] - 2026-11-01
 
 ### Fixed
