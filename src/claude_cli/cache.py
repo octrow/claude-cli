@@ -171,7 +171,18 @@ _KEY_KWARGS = {
     "context": None,
     "direct": False,
     "effort": "medium",
+    # project mode: the same prompt means a different thing in another dir / with other tools
+    "cwd": None,
+    "allowed_tools": None,
+    "setting_sources": "user",
+    "slash_commands": False,
+    "permission_mode": None,
 }
+
+
+def _key_value(name: str, value) -> str:
+    """``cwd`` keys by its resolved path, so ``Path`` / ``str`` / relative spellings share a row."""
+    return str(Path(value).resolve()) if name == "cwd" else str(value)
 
 
 def cached_run(
@@ -200,7 +211,7 @@ def cached_run(
     # These kwargs change the answer, so they must split the key; folded into the model
     # part only when off their default, so existing rows stay valid.
     routing = ",".join(
-        f"{k}={kwargs[k]}"
+        f"{k}={_key_value(k, kwargs[k])}"
         for k, default in _KEY_KWARGS.items()
         if k in kwargs and kwargs[k] not in (default, "")
     )

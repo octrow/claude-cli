@@ -6,7 +6,7 @@ import asyncio
 import io
 import json
 import urllib.error
-from http.client import HTTPMessage
+from http.client import BadStatusLine, HTTPMessage, IncompleteRead
 
 import pytest
 
@@ -496,3 +496,20 @@ def test_http_result_echoes_tier_and_logs(auto, http, cli, caplog):
 def test_async_and_stream_http_results_echo_tier(auto, http, cli):
     assert asyncio.run(arun_claude("p", tier="low")).tier == "low"
     assert stream_claude("p", lambda _e: None, tier="low").tier == "low"
+
+
+@pytest.mark.parametrize("exc", [BadStatusLine("junk"), IncompleteRead(b"x")])
+def test_malformed_http_answer_falls_back_to_cli_and_cools_down(auto, http, cli, monkeypatch, exc):
+    def boom(req, timeout):
+        raise exc
+
+    monkeypatch.setattr(http_api._OPENER, "open", boom)
+    with pytest.raises(RuntimeError, match="cli reached"):
+        run_claude("p")
+    assert len(cli) == 1
+
+
+def test_output_format_text_is_refused_before_http(auto, http, cli):
+    with pytest.raises(ValueError, match="output_format"):
+        run_claude("p", output_format="text")
+    assert not http.calls and not cli

@@ -212,3 +212,36 @@ def test_cached_run_default_kwargs_keep_existing_keys():
     store = DictCacheStore()
     cached_run(_runner(), store, "p", direct=False, effort="medium", backend="cli")
     assert cache_key("sonnet", "p") in store.rows
+
+
+def test_cached_run_splits_key_by_project_mode_kwargs(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    store, calls = DictCacheStore(), []
+    cached_run(_runner(text="A", calls=calls), store, "p", cwd=a)
+    assert cached_run(_runner(text="B", calls=calls), store, "p", cwd=b) == "B"
+    assert cached_run(_runner(calls=calls), store, "p", cwd=str(a)) == "A"  # same dir, str form
+    for kw in (
+        {"allowed_tools": "Read"},
+        {"setting_sources": "user,project"},
+        {"slash_commands": True},
+        {"permission_mode": "plan"},
+    ):
+        assert cached_run(_runner(text="X", calls=calls), store, "p", **kw) == "X"
+    assert len(calls) == 6
+
+
+def test_cached_run_project_mode_defaults_keep_existing_keys():
+    store = DictCacheStore()
+    cached_run(
+        _runner(),
+        store,
+        "p",
+        cwd=None,
+        allowed_tools=None,
+        setting_sources="user",
+        slash_commands=False,
+        permission_mode=None,
+    )
+    assert cache_key("sonnet", "p") in store.rows

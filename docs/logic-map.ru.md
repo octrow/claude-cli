@@ -64,7 +64,7 @@ Module: `runner`, `http_api`
 | `run_claude` | `auto` | есть | `json` (kwarg) | блокирующий; единственный вход с `direct` |
 | `arun_claude` | `auto` | **нет** | `json` (kwarg) | HTTP-шаг в `asyncio.to_thread`; CLI через `asyncio.create_subprocess_exec` |
 | `stream_claude` | `auto` | **нет** | всегда `stream-json` | шагу 2 передаётся `json`, поэтому поток без инструментов идёт по HTTP и событий не шлёт |
-| `ping` | kwarg `cli` | нет | `json` | `model="haiku"`, `timeout=90`, промпт "reply with the single word pong"; не бросает; всегда CLI (env не перекрывает явный `cli`) |
+| `ping` | kwarg `cli` | нет | `json` | `model="haiku"` (→ `free-stack`, подписку не проверяет), `timeout=90`, промпт "reply with the single word pong"; не бросает; всегда CLI (env не перекрывает явный `cli`) |
 | `ClaudeCliProvider.ask` | `auto` | через `**kwargs` | `json` | `DEFAULT_MODEL="sonnet"`, `DEFAULT_TIMEOUT=300`; возвращает только `.text` |
 | `cached_run(runner, store, …)` | как у runner | как у runner | как у runner | свой `model="sonnet"` по умолчанию, передаётся всегда; см. боковые потоки |
 
@@ -133,7 +133,7 @@ Module: `http_api`
 Ветки:
 - `auto` + `HttpLlmError` со статусом 400, 413 или 422 (отклонён этот запрос) → warning в лог, дальше шаг 6, без cooldown;
 - `auto` + любой другой `HttpLlmError` (нет ответа, 401, 404, 429, 5xx …) → warning в лог, `_down_until = now + 600 с` на весь процесс (все модели), дальше шаг 6;
-- любое другое исключение → доходит до вызывающего, без отката и cooldown;
+- любое другое исключение (не `HttpLlmError`) → доходит до вызывающего, без отката и cooldown; `http.client.HTTPException` теперь оборачивается в `HttpLlmError` на шаге 4;
 - `api` + HTTP-статус → `HTTP <code>` и тело ошибки (≤64 KiB, лежит в `.stdout`) проходят классификатор шага 10: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → ошибка шлюза с подсказкой, иначе `HttpLlmError("HTTP <code> from <url>: <тело ≤300>")`;
 - `api` + транспортная ошибка → `HttpLlmError`.
 Module: `http_api`
@@ -197,7 +197,7 @@ Module: `parsing`
 - лимит (`usage limit`, `session limit`, `rate limit`, `quota exceeded`, `too many requests`, `429`) → `UsageLimitError`, `session_wide = not via_gateway`; сообщение — совпавшая строка;
 - код ≠ 0, ничего не совпало → `ClaudeCliError("claude exited N: <detail>")`.
 Шлюз раньше лимита намеренно: "combo 'hard': fallback exhausted (429)" совпадает с обоими.
-Detail: хвост stderr 500 символов, иначе текст result, иначе последняя не-JSON строка stdout.
+Detail: хвост stderr 500 символов, иначе текст result, иначе последняя не-JSON строка stdout; если это `(no output)`, а сырой вывод состоял только из предупреждений omniroute, — `(stderr held only omniroute warnings)`; если после удаления баннеров что-то осталось — `(only JSON events, no error text)`.
 Подсказка: любой широкий маркер шлюза (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) добавляет дешёвые команды диагностики `omniroute` и ссылки на доки; только вызовы через шлюз, direct-прогон её не получает.
 `arun_claude` и `stream_claude` оставляют `via_gateway` по умолчанию `True`.
 Сбой: каждая ошибка несёт `.stdout`.
@@ -224,7 +224,7 @@ Module: `runner`, `errors`
 ### Кэш ответов (`cached_run`)
 
 Ключ: sha256 по модели, промпту со схлопнутыми пробелами и `schema`/`version`/`purpose`/`tools`, если заданы.
-`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort` входят в часть модели, если отличаются от умолчания (`None`, `False`, `"medium"`), так что старые строки сохраняют ключи; `effort=None` входит. `backend`, `allowed_tools`, `cwd` — нет.
+`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort`, `cwd` (resolved), `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode` входят в часть модели, если отличаются от умолчания (`None`, `False`, `"medium"`, `"user"`), так что старые строки сохраняют ключи; `effort=None` входит. `backend`, `output_format`, `timeout` — нет.
 Попадание → сохранённый текст, runner не вызывается. `refresh=True` пропускает чтение. Возвращается только `.text`.
 Запись: одна строка на промах; колонка `prompt` NULL, если не `store_prompt=True`. Ошибка записи (`sqlite3.Error`, `OSError`) в лог, не наружу; ошибки чтения и `FileCacheStore()` летят наружу.
 `FileCacheStore`: sqlite-таблица `claude_cli_cache`; новый каталог 0700, новый файл 0600 (umask действует; существующие сохраняют права); `max_age_days` делает старые строки промахами, ничего не удаляется.

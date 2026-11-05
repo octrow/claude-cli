@@ -994,3 +994,20 @@ def test_allowed_tools_without_tools_fails_before_any_route(fake_run):
     with pytest.raises(ValueError, match="allowed_tools"):
         run_claude("p", allowed_tools="Read(//f.png)")
     assert calls == []
+
+
+def test_only_json_events_exit_is_not_blamed_on_omniroute(fake_run):
+    fake_run(returncode=1, stdout='{"type":"system","subtype":"init"}\n', stderr="")
+    with pytest.raises(ClaudeCliError) as exc:
+        run_claude("x", output_format="stream-json", direct=True)
+    assert "omniroute" not in str(exc.value)
+    assert "only JSON events" in str(exc.value)
+
+
+def test_success_log_does_not_claim_subscription(fake_run, caplog):
+    import logging
+
+    fake_run(returncode=0, stdout='{"result":"ok","total_cost_usd":0}')
+    with caplog.at_level(logging.INFO):
+        run_claude("x")
+    assert "subscription" not in caplog.text

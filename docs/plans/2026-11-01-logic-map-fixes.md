@@ -29,6 +29,12 @@ Severity: HIGH — неверный результат для пользоват
 | 16 ✅ | 2, 6 | `allowed_tools` без `tools` уводит вызов в CLI (`runner.py:451`), но в argv попадает `--tools ""` и нет `--allowed-tools` (`:265-269`): прогон без инструментов, без ошибки. | `ValueError`, если `allowed_tools` задан без `tools`. | LOW |
 | 17 ✅ | 4 | `OMNIROUTE_URL=http://localhost:20128/` даёт `…20128//v1/chat/completions` (`http_api.py:121`); на 404 каждый `auto`-вызов уходит в cooldown и CLI. | `rstrip("/")`. | LOW |
 | 18 ✅ | JSON from prose | `extract_json('Use {name}: {"a": 1}')` → `JSONDecodeError`: `raw_decode` пробует только первую `{` (`parsing.py:65-69`); то же в `parse_envelope` (`:133-136`). | Перебирать `{` до первого успешного `raw_decode`. | LOW |
+| 19 ✅ | 11 | Успех CLI-вызова пишет `claude ok: …, cost=… (subscription)` (`runner.py:431`) и для вызова через шлюз: `sonnet`/`haiku` идут в `free-stack` без подписки, `cost` там `None` или 0. Лог врёт про источник оплаты. | Убрать слово `(subscription)` или писать маршрут (`gateway`/`direct`). | LOW |
+| 20 ✅ | 4, 5 | `omniroute_chat` ловит `OSError, ValueError, KeyError, IndexError, TypeError` (`http_api.py:171`), но `http.client.HTTPException` — не `OSError`, а urllib оборачивает в `URLError` только `OSError`. Проверено: слушатель, отвечающий не-HTTP строкой, даёт `BadStatusLine`, оборванное chunked-тело — `IncompleteRead`; оба вылетают из `try_http` в `auto` (`http_api.py:242-246`): ни отката в CLI, ни cooldown, и это не `RuntimeError`, так что `except RuntimeError` у потребителей (`errors.py:3-6`) не срабатывает. Рестарт шлюза посреди ответа — реальный сценарий. | Добавить `http.client.HTTPException` в кортеж `except` (`http_api.py:171`); тест с сокетом, отдающим мусор. | MEDIUM |
+| 21 ✅ | 2, 6 | `output_format` не валидируется (`runner.py:254-269` только проверяет `-`). `run_claude(output_format="text")` отвечает по HTTP (не `cli_only`, `runner.py:513`), а на откате CLI с `--output-format text` всегда падает: `parse_envelope` → `claude returned non-JSON` (`runner.py:416-420`). Проверено. Ответ зависит от того, жив ли шлюз. | `ValueError`, если `output_format` не `json`/`stream-json`. | LOW |
+| 22 ✅ | 10 | `(stderr held only omniroute warnings)` ставится при `detail == "(no output)"` и непустом сыром выводе (`runner.py:407-408`), без проверки, что это были баннеры omniroute. Проверено: `exit 1` со stdout только из JSON-событий stream-json и пустым stderr даёт это сообщение, в том числе на `direct`-вызове, где omniroute нет. Ведёт диагностику не туда. | Писать так, только если `strip_omniroute_noise` реально что-то удалил; иначе `(only JSON events, no error text)`. | LOW |
+| 23 ✅ | Response cache | После #3 ключ учитывает `direct` и `effort`, но не `cwd`, `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode` (`cache.py:165-174`, `:202-214`). `cached_run(run_claude, s, "what does CLAUDE.md say?", cwd=A)` и тот же вызов с `cwd=B` делят одну строку: второй проект получает ответ первого. Обойти можно `purpose=`/`version=`, но нигде не сказано, что это нужно. | Вопрос: складывать `cwd` (resolved) и `allowed_tools` в ключ, или задокументировать в docstring `cached_run`, что project-mode вызовы ключуются через `purpose`. | LOW |
+| 24 ✅ | Health check | `ping` по умолчанию `model="haiku"` (`runner.py:935`) → комбо `free-stack`, где нет таргета подписки Claude (`runner.py:68-69`). Docstring обещает «claude authenticated, subscription routing intact» (`runner.py:938-940`): успешный `ping` этого не доказывает. Требует ли `claude` под `omniroute run` свой логин — не подтверждено. | Поправить docstring/README, или `ping(model="opus")` для проверки подписки (тратит квоту). Не подтверждено: живой `ping()` при разлогиненном `claude`. | LOW |
 
 ## Решения по вопросам
 
@@ -38,7 +44,7 @@ Severity: HIGH — неверный результат для пользоват
 
 ## Порядок работы
 
-Все findings закрыты (2026-11-01).
+#1–18 закрыты (2026-11-01). Независимое ревью 2026-11-05 добавило #20–24; #19–24 закрыты 2026-11-05 (#23: ключ кэша теперь учитывает `cwd`, `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode`; решение virtual-me + virtual-rashid: A).
 
 `direct` для `arun_claude`/`stream_claude` (часть #8) не добавлен: по предложению плана — когда понадобится.
 
@@ -58,9 +64,10 @@ Severity: HIGH — неверный результат для пользоват
 | `stream_claude("count to 3", print, backend="cli")` | 8 stream | события печатаются по мере прихода |
 | `OMNIROUTE_URL=http://example.com run_claude("reply ok")` | 4 отказ → 5 cooldown → CLI | warning в логе, ответ из CLI |
 | `run_claude("reply ok", model="no-such-combo", backend="cli")` | 10 gateway exhausted | текст ошибки и подсказка |
+| `ping()` при разлогиненном `claude` (`claude /logout` в отдельном профиле) | Health check (#24) | `True` или `NotLoggedInError` |
 | `run_claude("what does CLAUDE.md say?", cwd="<project>/src", backend="cli")` (в `<project>` есть `CLAUDE.md`) | 7: подхватывает ли Claude Code `CLAUDE.md` родителя при `--setting-sources user` | ответ; если да — шаг 2 должен смотреть вверх по дереву |
 
 ## Готово, когда
 
-- [x] у каждого finding ✅ или решение «оставить как есть» с причиной;
+- [ ] у каждого finding ✅ или решение «оставить как есть» с причиной (открыты #19–24);
 - [x] Known gaps в карте перечисляет каждый открытый HIGH и MEDIUM.

@@ -52,7 +52,13 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from .errors import ClaudeCliError, NotLoggedInError, UsageLimitError
-from .parsing import clean_cli_text, error_detail, parse_envelope, parse_stream
+from .parsing import (
+    clean_cli_text,
+    error_detail,
+    parse_envelope,
+    parse_stream,
+    strip_omniroute_noise,
+)
 from .preflight import TIERS
 
 log = logging.getLogger(__name__)
@@ -187,6 +193,15 @@ def _flags(*pairs: tuple[str, str | None]) -> list[str]:
     return [part for flag, value in pairs if value for part in (flag, value)]
 
 
+_OUTPUT_FORMATS = ("json", "stream-json")
+
+
+def _check_output_format(output_format: str) -> None:
+    # "text" would answer over HTTP but always fail on the CLI fallback (no JSON envelope)
+    if output_format not in _OUTPUT_FORMATS:
+        raise ValueError(f"output_format must be one of {_OUTPUT_FORMATS}, got {output_format!r}")
+
+
 def _refuse_flag_like(values: dict[str, str | None]) -> None:
     """Every value is passed as ``--flag value``; one starting with '-' would parse as a flag."""
     for name, value in values.items():
@@ -251,6 +266,7 @@ def build_args(
         # it is only ever passed alongside --tools; alone it would be dropped and the run
         # would quietly have no tools at all
         raise ValueError("allowed_tools narrows tools; pass tools too (e.g. tools='Read')")
+    _check_output_format(output_format)
     _refuse_flag_like(
         {
             "model": model,
@@ -405,7 +421,12 @@ def _exit_error(
     """A failed run nothing classified. Only a gateway run can be OmniRoute's fault, so only
     it gets the OmniRoute diagnosis hint."""
     if detail == "(no output)" and raw.strip():
-        detail = "(stderr held only omniroute warnings)"
+        stripped = strip_omniroute_noise(raw).strip()
+        detail = (
+            "(stderr held only omniroute warnings)"
+            if not stripped
+            else "(only JSON events, no error text)"
+        )
     hint = _gateway_hint(combined, tier) if via_gateway else ""
     return ClaudeCliError(f"claude exited {returncode}: {detail}{hint}", stdout=stdout)
 
@@ -428,7 +449,7 @@ def _success(
 
     cost = env.get("total_cost_usd")
     duration = env.get("duration_ms")
-    log.info("claude ok: %dms, cost=%s (subscription)", duration or elapsed_ms, cost)
+    log.info("claude ok: %dms, cost=%s", duration or elapsed_ms, cost)
     return ClaudeResult(
         text=text,
         cost_usd=float(cost) if cost is not None else None,
@@ -498,6 +519,8 @@ def _http_first(
     a project dir (CLAUDE.md / .claude), slash commands or a remote override stay on the
     CLI. A neutral cwd (no project context) changes nothing over HTTP, so it doesn't count."""
     from .http_api import try_http  # late: http_api imports ClaudeResult from here
+
+    _check_output_format(output_format)
 
     project = bool(cwd) and any((Path(cwd) / m).exists() for m in ("CLAUDE.md", ".claude"))
     # A `claude-*` id reaches its combo through the gateway's glob mappings, which only the
@@ -936,8 +959,10 @@ def ping(model: str = "haiku", timeout: float = 90) -> tuple[bool, str]:
     """Real end-to-end check through OmniRoute — never raises.
 
     For "doctor"-style startup checks that want proof the whole path works
-    (omniroute reachable, claude authenticated, subscription routing intact)
-    instead of :func:`claude_available`'s PATH-only check.
+    (omniroute reachable, a model answers) instead of :func:`claude_available`'s
+    PATH-only check. The default ``haiku`` goes to the ``free-stack`` combo, which has no
+    Claude-subscription target, so a pass does not prove the subscription works; use
+    ``model="opus"`` for that (it spends quota).
 
     Returns ``(True, "pong via omniroute, <n>s")`` on success, or
     ``(False, <cleaned error, ≤200 chars>)`` on any exception or timeout.

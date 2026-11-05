@@ -64,9 +64,9 @@ All model calls go through steps 1–11. They differ in defaults and in what the
 | Entry | Backend | `direct` | Output format | Notes |
 |---|---|---|---|---|
 | `run_claude` | `auto` | yes | `json` (kwarg) | blocking; the only entry with `direct` |
-| `arun_claude` | `auto` | **absent** | `json` (kwarg) | HTTP step runs in `asyncio.to_thread`; CLI via `asyncio.create_subprocess_exec` |
+| `arun_claude` | `auto` | **absent** | `json` (kwarg) | HTTP step runs in `asyncio.to_thread` (cancelling the task does not stop that thread's request); CLI via `asyncio.create_subprocess_exec` |
 | `stream_claude` | `auto` | **absent** | forced `stream-json` | step 2 is told `json`, so a tool-less stream goes HTTP and emits no events |
-| `ping` | `cli` kwarg | no | `json` | `model="haiku"`, `timeout=90`, prompt "reply with the single word pong"; never raises; always CLI (env cannot flip an explicit `cli`) |
+| `ping` | `cli` kwarg | no | `json` | `model="haiku"` (→ `free-stack`, no Claude-subscription target), `timeout=90`, prompt "reply with the single word pong"; never raises (catches `Exception`); always CLI (env cannot flip an explicit `cli`); the reply text is not checked |
 | `ClaudeCliProvider.ask` | `auto` | via `**kwargs` | `json` | `DEFAULT_MODEL="sonnet"`, `DEFAULT_TIMEOUT=300`; returns `.text` only |
 | `cached_run(runner, store, …)` | runner's | runner's | runner's | own `model="sonnet"` default, always passed; see side flows |
 
@@ -112,7 +112,7 @@ Branches:
 - `cli` or `cli_only` → CLI;
 - `api` → step 4, errors propagate;
 - `auto` → step 4 only if the process-wide cooldown has passed and `api_key()` finds a key.
-No key: `OMNIROUTE_API_KEY` env, else the first `OMNIROUTE_API_KEY=…` line (optional `export `, quotes stripped) in `~/.omniroute/.env`; empty value or unreadable file → no key → CLI.
+No key: `OMNIROUTE_API_KEY` env when non-empty, else the first `OMNIROUTE_API_KEY=…` line (optional `export `, quotes stripped) in `~/.omniroute/.env`; empty value or unreadable file → no key → CLI.
 Fails: `ValueError` as above, before any request.
 Module: `http_api`
 
@@ -126,7 +126,7 @@ Branches:
 - body is `{"model", "messages"}` only: no `temperature` (it would switch on the gateway's semantic cache), no `effort`.
 Redirects are not followed (the bearer key would be resent). Body capped at 8 MiB; the deadline is checked only between body reads, so connect, headers and one stalled read each get their own `timeout`.
 `raw` keeps the OpenAI body with `usage` renamed to `input_tokens`/`output_tokens`. `stdout=""`, `tier` echoed. Success logs `claude ok via http: model=… combo=… Nms` (INFO).
-Fails: transport, status, JSON or choices-shape error, or empty content → `HttpLlmError` (a `ClaudeCliError`). A non-dict `usage` is read as empty.
+Fails: transport (`OSError` or `http.client.HTTPException`, e.g. `BadStatusLine`, `IncompleteRead`), status, JSON or choices-shape error, or empty/whitespace content → `HttpLlmError` (a `ClaudeCliError`). A non-dict `usage` is read as empty.
 Module: `http_api`
 
 ### 5. HTTP failure
@@ -135,9 +135,9 @@ Decides: whether an HTTP error ends the call.
 Branches:
 - `auto` + `HttpLlmError` with status 400, 413 or 422 (this request rejected) → warning log, continue at step 6, no cooldown;
 - `auto` + any other `HttpLlmError` (no answer, 401, 404, 429, 5xx …) → warning log, `_down_until = now + 600 s` for the whole process (all models), continue at step 6;
-- any other exception → reaches the caller, no fallback, no cooldown;
+- any other exception (not an `HttpLlmError`) → reaches the caller, no fallback, no cooldown;
 - `api` + an HTTP status → `HTTP <code>` plus the error body (≤64 KiB, kept in `.stdout`) run through the step 10 classifier: 429 → `UsageLimitError(session_wide=False)`, `ALL_TARGETS_SKIPPED` → gateway error with hint, else `HttpLlmError("HTTP <code> from <url>: <body ≤300>")`;
-- `api` + a transport error → `HttpLlmError`.
+- `api` + a transport error, no key (`no OMNIROUTE_API_KEY`) or a refused `OMNIROUTE_URL` → `HttpLlmError`, unclassified.
 Module: `http_api`
 
 ### 6. Argv
@@ -153,6 +153,7 @@ Branches:
 - always `--no-session-persistence --tools <tools>`; non-empty `tools` adds `--allowed-tools <allowed_tools or tools>`;
 - `--disable-slash-commands` unless `slash_commands`; `--permission-mode` when set;
 - always `--setting-sources <setting_sources> --strict-mcp-config --mcp-config <empty file>`.
+`output_format` other than `json`/`stream-json` → `ValueError` (also in step 2, before any HTTP attempt) [21].
 `--bare` is never added. `tier`/`profile` only pick `CLAUDE_CONFIG_DIR` inside the gateway, not the combo.
 Fails: `ValueError`. The entry points run these checks at step 1, so a bad kwarg fails on every route.
 Module: `runner`, `preflight`
@@ -199,7 +200,7 @@ Branches, first match wins:
 - usage limit (`usage limit`, `session limit`, `rate limit`, `quota exceeded`, `too many requests`, `429`) → `UsageLimitError`, `session_wide = not via_gateway`; message is the matching line;
 - exit ≠ 0, nothing matched → `ClaudeCliError("claude exited N: <detail>")`.
 Gateway before limit on purpose: "combo 'hard': fallback exhausted (429)" matches both.
-Detail: stderr tail 500 chars, else the result text, else the last non-JSON stdout line.
+Detail: stderr tail 500 chars, else the result text, else the last non-JSON stdout line; when that is `(no output)` and raw stdout+stderr is non-empty: `(stderr held only omniroute warnings)` if stripping omniroute banners leaves nothing, else `(only JSON events, no error text)`.
 Hint: any wider gateway marker (`502`, `503`, `omniroute`, `ECONNREFUSED`, `unrecognized_model` …) appends the cheapest `omniroute` diagnosis commands and doc links; gateway calls only, a direct run never gets it.
 `arun_claude` and `stream_claude` leave `via_gateway` at its default `True`.
 Fails: every error carries `.stdout`.
@@ -212,6 +213,7 @@ Branches:
 - `is_error` true → `ClaudeCliError("claude error: <last 300 chars>")`;
 - `result` missing, empty or not a string → `ClaudeCliError("claude produced no result")`;
 - else `ClaudeResult`; `duration_ms` from the envelope, else wall clock since step 1 (HTTP attempt included).
+Success logs `claude ok: Nms, cost=…` (INFO) on every CLI route.
 Module: `runner`
 
 ### Output
@@ -219,6 +221,7 @@ Module: `runner`
 `ClaudeResult`: `text`, `cost_usd` (envelope `total_cost_usd`; `0.0` on HTTP), `duration_ms`, `raw` (envelope or OpenAI body), `stdout` (raw CLI output; `""` on HTTP), `tier` (echo of the kwarg, on both routes).
 Errors: `NotLoggedInError`, `UsageLimitError(session_wide)`, `HttpLlmError`, `ClaudeCliError`; all are `RuntimeError`. Outside that family: `ValueError` for bad kwargs.
 The route is not a field: `stdout == ""` and the `via http` log line tell HTTP apart.
+`HttpLlmError` is not re-exported from `claude_cli`; import it from `claude_cli.http_api`.
 Module: `runner`, `errors`
 
 ## Side flows
@@ -226,10 +229,10 @@ Module: `runner`, `errors`
 ### Response cache (`cached_run`)
 
 Key: sha256 over model, whitespace-collapsed prompt, and `schema`/`version`/`purpose`/`tools` when set.
-`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort` fold into the model part when off their default (`None`, `False`, `"medium"`), so old rows keep their keys; `effort=None` folds. `backend`, `allowed_tools`, `cwd` do not.
+`tier`, `provider`, `profile`, `remote`, `base_url`, `context`, `direct`, `effort`, `cwd` (resolved path), `allowed_tools`, `setting_sources`, `slash_commands`, `permission_mode` fold into the model part when off their default (`None`, `False`, `"medium"`, `"user"`), so old rows keep their keys; `effort=None` folds. `backend`, `output_format`, `timeout` do not.
 Hit → stored text, runner not called. `refresh=True` skips the read. Only `.text` is returned.
 Writes: one row per miss; `prompt` column NULL unless `store_prompt=True`. A write error (`sqlite3.Error`, `OSError`) is logged, not raised; read and `FileCacheStore()` errors propagate.
-`FileCacheStore`: sqlite table `claude_cli_cache`; a new dir gets 0700, a new file 0600 (umask applies; existing ones keep their mode); `max_age_days` makes old rows read as misses, nothing is deleted.
+`FileCacheStore`: sqlite table `claude_cli_cache`; a new leaf dir gets 0700 (new parents get the umask default), a new file 0600 (umask applies; existing ones keep their mode); `max_age_days` makes old rows read as misses, nothing is deleted.
 Module: `cache`
 
 ### Batches (`pack_batches`, `run_chunks`)
@@ -240,7 +243,7 @@ Module: `batch`
 
 ### Health check (`ping`)
 
-`run_claude` with `backend="cli"`, which the env cannot override; returns `(True, "pong via omniroute, Ns")` or `(False, <cleaned error ≤200 chars>)`.
+`run_claude` with `backend="cli"`, which the env cannot override; default `model="haiku"` routes to `free-stack`, so a pass proves the gateway and `claude` binary, not the Claude subscription (documented in the docstring; `model="opus"` checks it) [24]; returns `(True, "pong via omniroute, Ns")` or `(False, <cleaned error ≤200 chars>)`.
 Module: `runner`
 
 ### Preflight (`health`, `doctor`, `quota_status`, `simulate`, `dry_run_plan`)
@@ -258,4 +261,5 @@ Module: `parsing`
 ## Known gaps
 
 Details and fixes are in the plan (number in brackets).
-- No open findings. New ones go to the plan with the next free number.
+- Open findings: none. (#19–24 closed 2026-11-05.)
+New ones go to the plan with the next free number.

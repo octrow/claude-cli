@@ -7,6 +7,7 @@ system prompt and tools. No API key -> the route is silently off.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import logging
@@ -168,7 +169,14 @@ def omniroute_chat(
         text = data["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as exc:  # 401 key, 422 body, 429/503 busy
         raise _status_error(exc, url) from exc
-    except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+    except (
+        OSError,
+        http.client.HTTPException,  # BadStatusLine / IncompleteRead are not OSError
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+    ) as exc:
         raise HttpLlmError(f"{type(exc).__name__}: {exc}") from exc
     if not isinstance(text, str) or not text.strip():
         raise HttpLlmError("empty completion")
