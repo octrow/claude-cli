@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-05
+
+### Changed
+
+- README refreshed: shorter, in plain language (the PyPI page shows it).
+
 ## [0.1.12] - 2026-11-05
 
 ### Fixed
